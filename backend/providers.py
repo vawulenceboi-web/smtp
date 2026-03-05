@@ -1,0 +1,419 @@
+from dataclasses import field
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+import httpx
+import aiosmtplib
+
+from .proxy import ProxyRotationManager
+from .user_agent import random_user_agent, random_x_mailer
+from .requeue import requeue_send_email
+from pydantic.dataclasses import dataclass
+
+
+class ProviderType(str, Enum):
+    BREVO = "brevo"
+    MAILGUN = "mailgun"
+    ZOHO = "zoho"
+    SENDINBLUE = "sendinblue"
+    SMTP = "smtp"
+
+
+@dataclass
+class ProviderConfig:
+    provider_type: ProviderType
+    api_key: Optional[str] = None
+    domain: Optional[str] = None
+    base_url: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    from_email: Optional[str] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "provider_type": self.provider_type.value,
+            "api_key": self.api_key,
+            "domain": self.domain,
+            "base_url": self.base_url,
+            "smtp_host": self.smtp_host,
+            "smtp_port": self.smtp_port,
+            "smtp_username": self.smtp_username,
+            "smtp_password": self.smtp_password,
+            "from_email": self.from_email,
+            "extra": self.extra or {},
+        }
+
+
+class HardBounceError(Exception):
+    pass
+
+
+class SpamBlockedError(Exception):
+    pass
+
+
+class RateLimitError(Exception):
+    pass
+
+
+class BaseEmailProvider:
+    def __init__(self, config: ProviderConfig, proxy_manager: ProxyRotationManager):
+        self.config = config
+        self.proxy_manager = proxy_manager
+
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def _augment_headers(self, headers: Dict[str, Any]) -> Dict[str, Any]:
+        augmented = dict(headers or {})
+        augmented.setdefault("User-Agent", random_user_agent())
+        augmented.setdefault("X-Mailer", random_x_mailer())
+        return augmented
+
+
+class BrevoProvider(BaseEmailProvider):
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        url = provider_config.base_url or "https://api.brevo.com/v3/smtp/email"
+        auth_headers = {
+            "api-key": provider_config.api_key or "",
+        }
+        final_headers = self._augment_headers({**auth_headers, **(headers or {})})
+
+        proxy = self.proxy_manager.current_http_proxy()
+        async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
+            try:
+                resp = await client.post(
+                    url,
+                    json={
+                        "sender": {"email": provider_config.from_email},
+                        "to": [{"email": addr} for addr in to],
+                        "subject": subject,
+                        "htmlContent": body,
+                    },
+                    headers=final_headers,
+                )
+            except httpx.HTTPError as exc:
+                raise Exception(f"Brevo HTTP error: {exc}") from exc
+
+        if resp.status_code == 429:
+            await self._handle_rate_limit(provider_config, to, subject, body, headers)
+        if 400 <= resp.status_code < 600:
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            message = str(data)
+            if "hard bounce" in message.lower():
+                raise HardBounceError(message)
+            if "spam" in message.lower():
+                raise SpamBlockedError(message)
+            raise Exception(f"Brevo error: {resp.status_code} {message}")
+
+        return resp.json()
+
+    async def _handle_rate_limit(
+        self,
+        provider_config: ProviderConfig,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+    ):
+        requeue_send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            headers=headers,
+            provider_config=provider_config.to_dict(),
+            delay_seconds=60,
+        )
+        raise RateLimitError("Brevo rate limited. Email requeued.")
+
+
+class MailgunProvider(BaseEmailProvider):
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        domain = provider_config.domain
+        url = provider_config.base_url or f"https://api.mailgun.net/v3/{domain}/messages"
+        auth = ("api", provider_config.api_key or "")
+
+        final_headers = self._augment_headers(headers or {})
+        data = {
+            "from": provider_config.from_email,
+            "to": to,
+            "subject": subject,
+            "html": body,
+        }
+
+        proxy = self.proxy_manager.current_http_proxy()
+        async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
+            resp = await client.post(url, auth=auth, data=data, headers=final_headers)
+
+        if resp.status_code == 429:
+            await self._handle_rate_limit(provider_config, to, subject, body, headers)
+        if 400 <= resp.status_code < 600:
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            message = str(data)
+            if "hard bounce" in message.lower():
+                raise HardBounceError(message)
+            if "spam" in message.lower():
+                raise SpamBlockedError(message)
+            raise Exception(f"Mailgun error: {resp.status_code} {message}")
+
+        return resp.json()
+
+    async def _handle_rate_limit(
+        self,
+        provider_config: ProviderConfig,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+    ):
+        requeue_send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            headers=headers,
+            provider_config=provider_config.to_dict(),
+            delay_seconds=60,
+        )
+        raise RateLimitError("Mailgun rate limited. Email requeued.")
+
+
+class ZohoProvider(BaseEmailProvider):
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        account_id = (provider_config.extra or {}).get("account_id")
+        if provider_config.base_url:
+            url = provider_config.base_url
+        else:
+            if not account_id:
+                raise Exception("Zoho requires provider_config.extra.account_id")
+            url = f"https://mail.zoho.com/api/accounts/{account_id}/messages"
+        auth_headers = {
+            "Authorization": f"Zoho-oauthtoken {provider_config.api_key}",
+        }
+        final_headers = self._augment_headers({**auth_headers, **(headers or {})})
+
+        proxy = self.proxy_manager.current_http_proxy()
+        async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "fromAddress": provider_config.from_email,
+                    "toAddress": ",".join(to),
+                    "subject": subject,
+                    "content": body,
+                    "mailFormat": "html",
+                },
+                headers=final_headers,
+            )
+
+        if resp.status_code == 429:
+            await self._handle_rate_limit(provider_config, to, subject, body, headers)
+        if 400 <= resp.status_code < 600:
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            message = str(data)
+            if "hard bounce" in message.lower():
+                raise HardBounceError(message)
+            if "spam" in message.lower():
+                raise SpamBlockedError(message)
+            raise Exception(f"Zoho error: {resp.status_code} {message}")
+
+        return resp.json()
+
+    async def _handle_rate_limit(
+        self,
+        provider_config: ProviderConfig,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+    ):
+        requeue_send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            headers=headers,
+            provider_config=provider_config.to_dict(),
+            delay_seconds=60,
+        )
+        raise RateLimitError("Zoho rate limited. Email requeued.")
+
+
+class SendinblueProvider(BaseEmailProvider):
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        url = provider_config.base_url or "https://api.sendinblue.com/v3/smtp/email"
+        auth_headers = {
+            "api-key": provider_config.api_key or "",
+        }
+        final_headers = self._augment_headers({**auth_headers, **(headers or {})})
+
+        proxy = self.proxy_manager.current_http_proxy()
+        async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "sender": {"email": provider_config.from_email},
+                    "to": [{"email": addr} for addr in to],
+                    "subject": subject,
+                    "htmlContent": body,
+                },
+                headers=final_headers,
+            )
+
+        if resp.status_code == 429:
+            await self._handle_rate_limit(provider_config, to, subject, body, headers)
+        if 400 <= resp.status_code < 600:
+            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            message = str(data)
+            if "hard bounce" in message.lower():
+                raise HardBounceError(message)
+            if "spam" in message.lower():
+                raise SpamBlockedError(message)
+            raise Exception(f"Sendinblue error: {resp.status_code} {message}")
+
+        return resp.json()
+
+    async def _handle_rate_limit(
+        self,
+        provider_config: ProviderConfig,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+    ):
+        requeue_send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            headers=headers,
+            provider_config=provider_config.to_dict(),
+            delay_seconds=60,
+        )
+        raise RateLimitError("Sendinblue rate limited. Email requeued.")
+
+
+class SMTPProvider(BaseEmailProvider):
+    async def send_email(
+        self,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+        provider_config: ProviderConfig,
+    ) -> Dict[str, Any]:
+        final_headers = self._augment_headers(headers or {})
+
+        message_lines = []
+        for k, v in final_headers.items():
+            message_lines.append(f"{k}: {v}")
+        message_lines.append(f"Subject: {subject}")
+        message_lines.append("")
+        message_lines.append(body)
+        message = "\r\n".join(message_lines)
+
+        proxy = await self.proxy_manager.current_smtp_proxy()
+
+        try:
+            sock = await self.proxy_manager.connect_smtp_socket(
+                provider_config.smtp_host,
+                provider_config.smtp_port,
+            )
+            smtp = aiosmtplib.SMTP(
+                hostname=provider_config.smtp_host,
+                port=provider_config.smtp_port,
+                use_tls=False,
+                start_tls=True,
+                username=provider_config.smtp_username,
+                password=provider_config.smtp_password,
+                sock=sock,
+            )
+            await smtp.connect()
+            await smtp.sendmail(
+                sender=provider_config.from_email,
+                recipients=to,
+                message=message,
+            )
+            await smtp.quit()
+        except aiosmtplib.SMTPException as exc:
+            msg = str(exc).lower()
+            if "rate" in msg or "too many" in msg:
+                await self._handle_rate_limit(provider_config, to, subject, body, headers)
+            if "hard bounce" in msg:
+                raise HardBounceError(str(exc))
+            if "spam" in msg:
+                raise SpamBlockedError(str(exc))
+            raise
+
+        self.proxy_manager.record_success()
+        return {"status": "sent-via-smtp", "proxy": proxy}
+
+    async def _handle_rate_limit(
+        self,
+        provider_config: ProviderConfig,
+        to: List[str],
+        subject: str,
+        body: str,
+        headers: Dict[str, Any],
+    ):
+        requeue_send_email(
+            to=to,
+            subject=subject,
+            body=body,
+            headers=headers,
+            provider_config=provider_config.to_dict(),
+            delay_seconds=60,
+        )
+        raise RateLimitError("SMTP provider rate limited. Email requeued.")
+
+
+class ProviderFactory:
+    @staticmethod
+    def from_config(config: ProviderConfig, proxy_manager: ProxyRotationManager) -> BaseEmailProvider:
+        if config.provider_type == ProviderType.BREVO:
+            return BrevoProvider(config, proxy_manager)
+        if config.provider_type == ProviderType.MAILGUN:
+            return MailgunProvider(config, proxy_manager)
+        if config.provider_type == ProviderType.ZOHO:
+            return ZohoProvider(config, proxy_manager)
+        if config.provider_type == ProviderType.SENDINBLUE:
+            return SendinblueProvider(config, proxy_manager)
+        if config.provider_type == ProviderType.SMTP:
+            return SMTPProvider(config, proxy_manager)
+        raise ValueError(f"Unsupported provider type: {config.provider_type}")
+

@@ -1,0 +1,15 @@
+# Common ignores
+node_modules/
+.next/
+.env*.local
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
