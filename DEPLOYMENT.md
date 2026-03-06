@@ -27,6 +27,32 @@ This is a monorepo with separate frontend and backend applications that deploy t
    - Push to GitHub
    - Vercel auto-deploys on push
 
+## Backend Deployment (Railway.app)
+
+### Setup Using start.sh
+
+1. **Create New Project on Railway**
+   - Go to https://railway.app/
+   - New Project → GitHub Repo
+   - Connect your GitHub repository
+
+2. **Configure Project**
+   - Railway will auto-detect the Python project
+   - It uses the `start.sh` script at the root to build and run
+
+3. **Environment Variables**
+   Add in Railway dashboard:
+   ```
+   CELERY_BROKER_URL=redis://your-redis-url
+   CELERY_RESULT_BACKEND=redis://your-redis-url
+   SUPABASE_URL=your_supabase_url
+   SUPABASE_SECRET=your_supabase_key
+   ```
+
+4. **Deploy**
+   - Push to GitHub
+   - Railway auto-deploys on push
+
 ## Backend Deployment (Render)
 
 ### Option 1: Deploy via Web Service
