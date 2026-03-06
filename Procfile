@@ -1,2 +1,2 @@
 web: python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-worker: celery -A backend.celery_app worker --loglevel=info
+worker: celery -A celery_worker worker --loglevel=info
