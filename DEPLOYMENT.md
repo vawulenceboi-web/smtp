@@ -29,7 +29,7 @@ This is a monorepo with separate frontend and backend applications that deploy t
 
 ## Backend Deployment (Railway.app)
 
-### Setup Using Dockerfile
+### Setup Using Dockerfile and Procfile
 
 1. **Create New Project on Railway**
    - Go to https://railway.app/
@@ -39,9 +39,18 @@ This is a monorepo with separate frontend and backend applications that deploy t
 2. **Configure Project**
    - Railway will auto-detect the `Dockerfile` at the root
    - The Dockerfile builds a Python 3.11 container with all dependencies installed
+   - Railway will use the `Procfile` to define process types (web and worker)
    - Port: 8000
 
-3. **Environment Variables**
+3. **Process Types** (defined in `Procfile`)
+   - `web`: Runs FastAPI application on port 8000
+   - `worker`: Runs Celery worker for background tasks
+   
+   Both processes use the correct module paths:
+   - Web: `python -m uvicorn backend.main:app`
+   - Worker: `celery -A backend.celery_app worker`
+
+4. **Environment Variables**
    Add in Railway dashboard:
    ```
    CELERY_BROKER_URL=redis://your-redis-url
@@ -50,9 +59,10 @@ This is a monorepo with separate frontend and backend applications that deploy t
    SUPABASE_SECRET=your_supabase_key
    ```
 
-4. **Deploy**
+5. **Deploy**
    - Push to GitHub
    - Railway auto-deploys on push
+   - Both web and worker services will start automatically
 
 ## Backend Deployment (Render)
 
