@@ -29,7 +29,7 @@ This is a monorepo with separate frontend and backend applications that deploy t
 
 ## Backend Deployment (Railway.app)
 
-### Setup Using start.sh
+### Setup Using Dockerfile
 
 1. **Create New Project on Railway**
    - Go to https://railway.app/
@@ -37,8 +37,9 @@ This is a monorepo with separate frontend and backend applications that deploy t
    - Connect your GitHub repository
 
 2. **Configure Project**
-   - Railway will auto-detect the Python project
-   - It uses the `start.sh` script at the root to build and run
+   - Railway will auto-detect the `Dockerfile` at the root
+   - The Dockerfile builds a Python 3.11 container with all dependencies installed
+   - Port: 8000
 
 3. **Environment Variables**
    Add in Railway dashboard:
