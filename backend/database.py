@@ -186,3 +186,8 @@ class SupabaseDB:
 def get_db() -> SupabaseDB:
     """Get the Supabase database instance"""
     return SupabaseDB.get_instance()
+
+
+def get_supabase_client() -> SupabaseDB:
+    """Get the Supabase database instance (alias for get_db)"""
+    return SupabaseDB.get_instance()
