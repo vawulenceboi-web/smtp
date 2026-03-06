@@ -7,7 +7,7 @@ FastAPI-based backend for email campaign orchestration with support for:
 - Celery task queue integration
 - Campaign batch processing
 
-## Setup
+
 
 1. Install dependencies:
 ```bash
