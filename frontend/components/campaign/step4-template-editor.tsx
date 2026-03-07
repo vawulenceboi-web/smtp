@@ -143,12 +143,16 @@ export function Step4TemplateEditor() {
             </div>
 
             {/* Preview */}
-            <div className="p-4 bg-secondary rounded-lg border border-border max-h-32 overflow-y-auto">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Preview</p>
-              <div className="text-xs text-foreground space-y-1 whitespace-pre-wrap break-words">
-                {bodyContent ? bodyContent.substring(0, 200) : 'Email body preview will appear here...'}
-                {bodyContent && bodyContent.length > 200 && '...'}
-              </div>
+            <div className="p-4 bg-secondary rounded-lg border border-border max-h-48 overflow-y-auto">
+              <p className="text-xs font-medium text-muted-foreground mb-2">HTML Preview</p>
+              {bodyContent ? (
+                <div 
+                  className="prose prose-sm max-w-none text-foreground prose-headings:text-foreground prose-a:text-primary [&_a]:underline [&_p]:my-2 [&_img]:max-w-full"
+                  dangerouslySetInnerHTML={{ __html: bodyContent.replace(/\{\{\.Email\}\}/g, 'recipient@example.com').replace(/\{\{\.URL\}\}/g, 'https://example.com/campaign') }}
+                />
+              ) : (
+                <div className="text-xs text-muted-foreground">Email body preview will appear here...</div>
+              )}
             </div>
           </div>
         </div>

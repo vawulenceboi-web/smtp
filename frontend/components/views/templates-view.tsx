@@ -1,8 +1,12 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { Plus, AlertCircle, CheckCircle, Code } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { apiPost, apiGet } from '@/lib/api-client';
 
 interface Template {
   id: string;
@@ -15,10 +19,26 @@ interface Template {
   updated_at: string;
 }
 
+interface NewTemplateForm {
+  name: string;
+  subject: string;
+  body_content: string;
+  category: string;
+}
+
 export function TemplatesView() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState<NewTemplateForm>({
+    name: '',
+    subject: '',
+    body_content: '',
+    category: '',
+  });
   const { toast } = useToast();
 
   useEffect(() => {
@@ -26,14 +46,13 @@ export function TemplatesView() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch('/api/templates');
+        const { data, error } = await apiGet<Template[]>('/api/templates');
         
-        if (!response.ok) {
-          throw new Error(`Failed to fetch templates: ${response.status}`);
+        if (error) {
+          throw new Error(error);
         }
         
-        const data = await response.json();
-        setTemplates(data);
+        setTemplates(data || []);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load templates';
         setError(message);
@@ -50,19 +69,74 @@ export function TemplatesView() {
     fetchTemplates();
   }, [toast]);
 
+  const handleCreateTemplate = async () => {
+    if (!formData.name || !formData.subject || !formData.body_content) {
+      setError('Name, subject, and body are required');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      const { data, error } = await apiPost('/api/templates', {
+        name: formData.name,
+        subject: formData.subject,
+        body_content: formData.body_content,
+        category: formData.category || null,
+      });
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      setSuccessMessage('Template created successfully');
+      setShowNewTemplateModal(false);
+      setFormData({ name: '', subject: '', body_content: '', category: '' });
+      const { data: templates } = await apiGet<Template[]>('/api/templates');
+      if (templates) {
+        setTemplates(templates);
+      }
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create template';
+      setError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Email Templates</h1>
-          <p className="text-muted-foreground mt-1">Manage campaign email templates</p>
+          <p className="text-muted-foreground mt-1">Manage campaign email templates. Create templates here or use the campaign wizard (Step 4) to create templates while building campaigns.</p>
         </div>
 
-        <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium">
+        <Button onClick={() => setShowNewTemplateModal(true)} className="flex items-center gap-2">
           <Plus className="w-5 h-5" />
           New Template
-        </button>
+        </Button>
       </div>
+
+      {error && (
+        <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-destructive" />
+          <span className="text-sm text-destructive">{error}</span>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+          <span className="text-sm text-green-600 dark:text-green-400">{successMessage}</span>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -73,10 +147,6 @@ export function TemplatesView() {
             </div>
           ))}
         </div>
-      ) : error ? (
-        <div className="bg-card border border-red-500/30 rounded-lg p-6 text-red-400">
-          <p>Error: {error}</p>
-        </div>
       ) : templates.length === 0 ? (
         <div className="bg-card border border-border rounded-lg p-8 text-center text-muted-foreground">
           <p>No email templates defined yet. Create your first template to get started.</p>
@@ -86,7 +156,7 @@ export function TemplatesView() {
           {templates.map((template) => (
             <div
               key={template.id}
-              className="bg-card border border-border rounded-lg p-6 hover:border-primary/50 transition-colors cursor-pointer group"
+              className="bg-card border border-border rounded-lg p-6 hover:border-primary/50 transition-colors group"
             >
               <h3 className="text-lg font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">
                 {template.name}
@@ -104,13 +174,89 @@ export function TemplatesView() {
                   Used {template.usage_count} times
                 </span>
                 <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded group-hover:bg-primary/30 transition-colors">
-                  Edit
+                  View
                 </span>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* New Template Modal */}
+      <Dialog open={showNewTemplateModal} onOpenChange={setShowNewTemplateModal}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Create New Email Template</DialogTitle>
+            <DialogDescription>Create a reusable email template for your campaigns</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-name">Template Name</Label>
+              <input
+                id="template-name"
+                placeholder="e.g., Security Alert Template"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-category">Category (Optional)</Label>
+              <input
+                id="template-category"
+                placeholder="e.g., Security, Marketing, Notification"
+                value={formData.category}
+                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-subject">Subject Line</Label>
+              <input
+                id="template-subject"
+                placeholder="e.g., Important Security Update Required"
+                value={formData.subject}
+                onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-body">Email Body (HTML or Plain Text)</Label>
+              <textarea
+                id="template-body"
+                placeholder={'<html>\n<body>\n<p>Hello {{.Email}},</p>\n<p>Please update your password.</p>\n<p>Click here: {{.URL}}</p>\n</body>\n</html>'}
+                value={formData.body_content}
+                onChange={(e) => setFormData({ ...formData, body_content: e.target.value })}
+                className="w-full h-40 px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono"
+              />
+            </div>
+
+            <div className="p-3 bg-secondary rounded-lg border border-border">
+              <div className="flex items-center gap-2 mb-2">
+                <Code className="w-4 h-4 text-muted-foreground" />
+                <p className="text-xs font-medium text-muted-foreground">Available Variables:</p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <code className="px-2 py-1 bg-input rounded text-xs font-mono">{'{{.Email}}'}</code>
+                <code className="px-2 py-1 bg-input rounded text-xs font-mono">{'{{.URL}}'}</code>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setShowNewTemplateModal(false)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateTemplate} disabled={isSubmitting} className="bg-primary hover:bg-primary/90">
+              {isSubmitting ? 'Creating...' : 'Create Template'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

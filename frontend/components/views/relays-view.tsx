@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { apiPost, apiGet } from '@/lib/api-client';
 
 interface Relay {
   id: string;
@@ -53,14 +54,13 @@ export function RelaysView() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('/api/relays');
+      const { data, error } = await apiGet<Relay[]>('/api/relays');
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch relays: ${response.status}`);
+      if (error) {
+        throw new Error(error);
       }
       
-      const data = await response.json();
-      setRelays(data);
+      setRelays(data || []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load relays';
       setError(message);
@@ -83,22 +83,17 @@ export function RelaysView() {
     try {
       setIsSubmitting(true);
       setError(null);
-      const response = await fetch('/api/relays', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name,
-          host: formData.host,
-          port: formData.port,
-          username: formData.username,
-          password: formData.password,
-          use_tls: formData.useTLS,
-        }),
+      const { data, error } = await apiPost('/api/relays', {
+        name: formData.name,
+        host: formData.host,
+        port: formData.port,
+        username: formData.username,
+        password: formData.password,
+        use_tls: formData.useTLS,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create relay');
+      if (error) {
+        throw new Error(error);
       }
 
       setSuccessMessage('Relay added successfully');

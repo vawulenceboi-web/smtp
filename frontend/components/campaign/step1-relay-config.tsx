@@ -6,6 +6,7 @@ import { relayConfigSchema } from '@/lib/validators';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { apiPost } from '@/lib/api-client';
 
 export function Step1RelayConfig() {
   const { relayConfig, updateRelayConfig, setStep } = useCampaign();
@@ -37,25 +38,20 @@ export function Step1RelayConfig() {
     setConnectionMessage('');
 
     try {
-      const response = await fetch('/api/relays/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: relayConfig.host,
-          port: relayConfig.port,
-          username: relayConfig.username,
-          password: relayConfig.password,
-          use_tls: relayConfig.useTLS,
-        }),
+      const { data, error } = await apiPost('/api/relays/test-connection', {
+        host: relayConfig.host,
+        port: relayConfig.port,
+        username: relayConfig.username,
+        password: relayConfig.password,
+        use_tls: relayConfig.useTLS,
       });
 
-      if (response.ok) {
+      if (error) {
+        setConnectionStatus('error');
+        setConnectionMessage(`✗ Connection failed: ${error}`);
+      } else if (data) {
         setConnectionStatus('success');
         setConnectionMessage('✓ Connection successful! SMTP relay is responding correctly.');
-      } else {
-        const error = await response.json();
-        setConnectionStatus('error');
-        setConnectionMessage(`✗ Connection failed: ${error.detail || 'Unknown error'}`);
       }
     } catch (err) {
       setConnectionStatus('error');
