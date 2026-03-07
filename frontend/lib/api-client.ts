@@ -9,12 +9,33 @@ interface ApiErrorResponse {
   error?: string;
 }
 
+// Get the backend API URL from environment variable
+// Must start with NEXT_PUBLIC_ to be available in browser
+const getBackendUrl = (): string => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!apiUrl) {
+    console.warn('NEXT_PUBLIC_API_URL is not set. API calls may fail.');
+    return ''; // Will make relative requests
+  }
+  return apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
+};
+
+// Build the full URL for API requests
+const buildUrl = (path: string): string => {
+  const baseUrl = getBackendUrl();
+  if (!baseUrl) return path; // Relative URL
+  // Ensure path starts with /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseUrl}${cleanPath}`;
+};
+
 export async function apiFetch<T>(
   url: string,
   options?: RequestInit
 ): Promise<{ data: T | null; error: string | null }> {
   try {
-    const response = await fetch(url, {
+    const fullUrl = buildUrl(url);
+    const response = await fetch(fullUrl, {
       ...options,
       headers: {
         'Content-Type': 'application/json',

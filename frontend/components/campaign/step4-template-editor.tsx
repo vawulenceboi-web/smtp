@@ -6,6 +6,7 @@ import { templateSchema } from '@/lib/validators';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Code, CheckCircle, Loader } from 'lucide-react';
+import { apiPost } from '@/lib/api-client';
 
 export function Step4TemplateEditor() {
   const { template, updateTemplate, relayConfig, senderDetails, targets } = useCampaign();
@@ -74,22 +75,13 @@ export function Step4TemplateEditor() {
       };
 
       // Submit campaign to backend
-      const response = await fetch('/campaigns/enqueue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(campaignRequest),
-      });
+      const { data, error: apiError } = await apiPost('/campaigns/enqueue', campaignRequest);
 
-      if (!response.ok) {
-        try {
-          const error = await response.json();
-          throw new Error(error.detail || error.message || `HTTP ${response.status}`);
-        } catch (e) {
-          throw new Error(`Failed to enqueue campaign (HTTP ${response.status})`);
-        }
+      if (apiError) {
+        throw new Error(apiError);
       }
 
-      const result = await response.json();
+      const result = data;
       setSubmitStatus('success');
       setSubmitMessage(`Campaign successfully queued! ID: ${campaignId}`);
     } catch (err) {

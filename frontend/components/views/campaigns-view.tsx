@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Filter, Trash2 } from 'lucide-react';
+import { apiGet } from '@/lib/api-client';
 
 type CampaignSummary = {
   id: string;
@@ -23,11 +24,10 @@ export function CampaignsView() {
     setIsLoading(true);
     const load = async () => {
       try {
-        const res = await fetch('/api/campaigns', { cache: 'no-store' });
-        if (!res.ok) {
+        const { data, error } = await apiGet<{ campaigns: any[] }>('/api/campaigns');
+        if (error || !data) {
           throw new Error('Failed to load campaigns');
         }
-        const data = await res.json();
         const items = (data.campaigns || []) as any[];
         const mapped: CampaignSummary[] = items.map((c) => ({
           id: String(c.id),

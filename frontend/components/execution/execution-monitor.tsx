@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useCampaign } from '@/lib/campaign-context';
 import { EmailExecutionStatus } from '@/lib/types';
 import { Play, Pause, RotateCcw, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { apiPost, apiGet } from '@/lib/api-client';
 import { EmailStatusTable } from './email-status-table';
 
 export function ExecutionMonitor() {
@@ -47,32 +48,27 @@ export function ExecutionMonitor() {
     setCampaignId(newCampaignId);
 
     try {
-      const response = await fetch('/api/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          campaign_id: newCampaignId,
-          recipients: targets.map((t) => ({ email: t.email, metadata: {} })),
-          subject: template.subject,
-          body: template.bodyContent,
-          headers: {},
-          provider_config: {
-            provider_type: 'smtp',
-            smtp_host: relayConfig.host,
-            smtp_port: relayConfig.port,
-            smtp_username: relayConfig.username,
-            smtp_password: relayConfig.password,
-            from_email: senderDetails.fromEmail,
-            extra: {},
-          },
-          proxy_config: null,
-          sender_ip: null,
-        }),
+      const { data: response, error: apiError } = await apiPost('/api/campaigns', {
+        campaign_id: newCampaignId,
+        recipients: targets.map((t) => ({ email: t.email, metadata: {} })),
+        subject: template.subject,
+        body: template.bodyContent,
+        headers: {},
+        provider_config: {
+          provider_type: 'smtp',
+          smtp_host: relayConfig.host,
+          smtp_port: relayConfig.port,
+          smtp_username: relayConfig.username,
+          smtp_password: relayConfig.password,
+          from_email: senderDetails.fromEmail,
+          extra: {},
+        },
+        proxy_config: null,
+        sender_ip: null,
       });
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        console.error('Failed to enqueue campaign', data);
+      if (apiError) {
+        console.error('Failed to enqueue campaign', apiError);
         alert('Failed to enqueue campaign. See console for details.');
         setIsRunning(false);
       }
@@ -93,11 +89,10 @@ export function ExecutionMonitor() {
       }
 
       try {
-        const res = await fetch(`/api/campaigns/${campaignId}/status`, { cache: 'no-store' });
-        if (!res.ok) {
+        const { data, error } = await apiGet<{ recipients: Record<string, { status?: string; provider?: string }> }>(`/api/campaigns/${campaignId}/status`);
+        if (error || !data) {
           return;
         }
-        const data = await res.json();
         const recipients = data.recipients || {};
 
         const statuses: EmailExecutionStatus[] = Object.keys(recipients).map((email) => {

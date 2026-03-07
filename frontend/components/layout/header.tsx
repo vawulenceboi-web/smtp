@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Bell, User, Settings } from 'lucide-react';
+import { apiGet } from '@/lib/api-client';
 
 export function Header() {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -16,9 +17,8 @@ export function Header() {
 
   const fetchUnreadCount = async () => {
     try {
-      const response = await fetch('/api/notifications/admin/null/unread-count');
-      if (response.ok) {
-        const data = await response.json();
+      const { data, error } = await apiGet<{ unread_count: number }>('/api/notifications/admin/null/unread-count');
+      if (!error && data) {
         setUnreadCount(data.unread_count || 0);
       }
     } catch (err) {
