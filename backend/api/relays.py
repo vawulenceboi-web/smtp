@@ -105,6 +105,17 @@ async def test_connection(config: RelayTestRequest):
     return result
 
 
+@router.get("/debug", response_model=dict)
+async def debug_endpoint():
+    """Simple debug endpoint to verify router is working"""
+    logger.info(f"🐛 GET /api/relays/debug endpoint called")
+    return {
+        "status": "ok",
+        "message": "Relays router is working",
+        "endpoint": "/api/relays/test-connection"
+    }
+
+
 @router.post("", response_model=RelayResponse)
 async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
     """Create a new SMTP relay configuration"""

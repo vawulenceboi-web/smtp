@@ -85,7 +85,29 @@ export default function DebugPage() {
     }
 
     try {
-      console.log('🧪 Testing relays endpoint...');
+      console.log('🧪 Testing /api/relays/debug endpoint (simple test)...');
+      const debugResponse = await fetch(`${apiUrl}/api/relays/debug`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!debugResponse.ok) {
+        console.error('❌ Debug endpoint failed:', debugResponse.status);
+        setInfo({
+          ...info!,
+          testResult: {
+            status: debugResponse.status,
+            error: `Debug endpoint returned ${debugResponse.status}. Router may not be working.`,
+          },
+        });
+        return;
+      }
+
+      const debugData = await debugResponse.json();
+      console.log('✅ Debug endpoint working:', debugData);
+      
+      // Now try the actual test-connection endpoint
+      console.log('🧪 Testing test-connection endpoint...');
       const response = await fetch(`${apiUrl}/api/relays/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,7 +133,7 @@ export default function DebugPage() {
           error: error instanceof Error ? error.message : String(error),
         },
       });
-      console.error('❌ Test connection failed:', error);
+      console.error('❌ Test failed:', error);
     }
   };
 
@@ -194,7 +216,7 @@ export default function DebugPage() {
                   : 'bg-slate-600 text-slate-400 cursor-not-allowed'
               }`}
             >
-              📧 Test /api/relays/test-connection
+              � Test /api/relays Router
             </button>
           </div>
 
