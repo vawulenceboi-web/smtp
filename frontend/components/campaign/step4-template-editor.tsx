@@ -1,13 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { useCampaign } from '@/lib/campaign-context';
 import { templateSchema } from '@/lib/validators';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, Code } from 'lucide-react';
+import { AlertCircle, Code, CheckCircle, Loader } from 'lucide-react';
 
 export function Step4TemplateEditor() {
-  const { template, updateTemplate } = useCampaign();
+  const { template, updateTemplate, relayConfig, senderDetails, targets } = useCampaign();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [submitMessage, setSubmitMessage] = useState('');
 
   const {
     register,
@@ -21,8 +25,79 @@ export function Step4TemplateEditor() {
 
   const bodyContent = watch('bodyContent');
 
-  const onSubmit = (data: any) => {
+  const onSubmit = async (data: any) => {
+    // First save the template data
     updateTemplate(data);
+    
+    // Validate all required data is present
+    if (!relayConfig.host || !senderDetails.fromEmail || targets.length === 0 || !data.subject) {
+      setSubmitStatus('error');
+      setSubmitMessage('Please complete all steps: SMTP relay, sender details, target emails, and template');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setSubmitStatus('idle');
+      setSubmitMessage('');
+
+      // Generate a campaign ID
+      const campaignId = `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Prepare campaign request
+      const campaignRequest = {
+        campaign_id: campaignId,
+        recipients: targets.map(t => ({
+          email: t.email,
+          metadata: {},
+        })),
+        subject: data.subject,
+        body: data.bodyContent,
+        headers: {
+          'From': senderDetails.fromEmail,
+          'From-Name': senderDetails.fromName,
+          ...(data.replyTo && { 'Reply-To': data.replyTo }),
+          ...(data.inReplyToId && { 'In-Reply-To': data.inReplyToId }),
+        },
+        provider_config: {
+          provider_type: 'smtp',
+          smtp_host: relayConfig.host,
+          smtp_port: relayConfig.port,
+          smtp_username: relayConfig.username,
+          smtp_password: relayConfig.password,
+          from_email: senderDetails.fromEmail,
+          extra: {
+            use_tls: relayConfig.useTLS,
+            relay_name: relayConfig.name,
+          },
+        },
+      };
+
+      // Submit campaign to backend
+      const response = await fetch('/campaigns/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(campaignRequest),
+      });
+
+      if (!response.ok) {
+        try {
+          const error = await response.json();
+          throw new Error(error.detail || error.message || `HTTP ${response.status}`);
+        } catch (e) {
+          throw new Error(`Failed to enqueue campaign (HTTP ${response.status})`);
+        }
+      }
+
+      const result = await response.json();
+      setSubmitStatus('success');
+      setSubmitMessage(`Campaign successfully queued! ID: ${campaignId}`);
+    } catch (err) {
+      setSubmitStatus('error');
+      setSubmitMessage(err instanceof Error ? err.message : 'Failed to submit campaign');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const placeholderVariables = [
@@ -165,13 +240,42 @@ export function Step4TemplateEditor() {
           </p>
         </div>
 
+        {/* Status Messages */}
+        {submitStatus === 'success' && (
+          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-green-400">Campaign Submitted Successfully!</p>
+              <p className="text-xs text-green-300 mt-1">{submitMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {submitStatus === 'error' && (
+          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-red-400">Failed to Submit Campaign</p>
+              <p className="text-xs text-red-300 mt-1">{submitMessage}</p>
+            </div>
+          </div>
+        )}
+
         {/* Buttons */}
         <div className="flex gap-3 pt-4">
           <button
             type="submit"
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium ml-auto"
+            disabled={isSubmitting}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium ml-auto disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            Save & Review Campaign
+            {isSubmitting ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                Submitting Campaign...
+              </>
+            ) : (
+              'Save & Review Campaign'
+            )}
           </button>
         </div>
       </form>
