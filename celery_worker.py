@@ -8,15 +8,21 @@ Railway runs: celery -A celery_worker worker
 import os
 from celery import Celery
 
-# Get Redis URLs from environment variables (set in Railway)
-broker_url = os.getenv(
-    "CELERY_BROKER_URL",
-    "redis://localhost:6379/0"
-)
-result_backend = os.getenv(
-    "CELERY_RESULT_BACKEND",
-    "redis://localhost:6379/1"
-)
+# Railway provides REDIS_URL automatically when you add a Redis service
+# But we also check for custom CELERY_* variables for flexibility
+redis_url = os.getenv("REDIS_URL")
+broker_url = os.getenv("CELERY_BROKER_URL") or redis_url or "redis://localhost:6379/0"
+result_backend = os.getenv("CELERY_RESULT_BACKEND") or redis_url or "redis://localhost:6379/1"
+
+# Validate that we have a broker URL
+if not broker_url or not result_backend:
+    raise RuntimeError(
+        "Celery broker/backend not configured. "
+        "Set REDIS_URL or CELERY_BROKER_URL/CELERY_RESULT_BACKEND"
+    )
+
+print(f"Celery Broker: {broker_url.split('@')[0] if '@' in broker_url else 'configured'}...")
+print(f"Celery Backend: {result_backend.split('@')[0] if '@' in result_backend else 'configured'}...")
 
 # Create the Celery app instance
 celery = Celery(
@@ -32,6 +38,7 @@ celery.conf.update(
     task_soft_time_limit=60 * 25,  # 25 minutes soft limit
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
+    broker_connection_retry_on_startup=True,
 )
 
 # Auto-discover tasks from tasks.py in the same directory
