@@ -4,8 +4,12 @@ from typing import List, Optional
 from datetime import datetime
 import aiosmtplib
 import ssl
+import logging
 
 from ..database import get_db, SupabaseDB
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/relays", tags=["relays"])
 
@@ -55,30 +59,49 @@ class RelayResponse(BaseModel):
 
 async def test_smtp_connection(config: RelayTestRequest) -> dict:
     """Test SMTP connection and return result"""
+    logger.info(f"🔍 Testing SMTP connection to {config.host}:{config.port} (TLS: {config.use_tls})")
+    logger.info(f"   Username: {config.username}")
+    
     try:
         # Create SSL context if TLS is enabled
         context = ssl.create_default_context() if config.use_tls else None
+        logger.info(f"   SSL Context: {'created' if context else 'not created'}")
         
         # Test connection
+        logger.info(f"   Creating SMTP connection...")
         async with aiosmtplib.SMTP(
             hostname=config.host,
             port=config.port,
             use_tls=config.use_tls,
             ssl_context=context
         ) as smtp:
+            logger.info(f"   SMTP connection established")
             # Login to test credentials
+            logger.info(f"   Attempting login with username: {config.username}")
             await smtp.login(config.username, config.password)
+            logger.info(f"✅ SMTP login successful for {config.username}@{config.host}")
             return {"success": True, "message": "SMTP connection successful"}
     except Exception as e:
-        return {"success": False, "message": f"Connection failed: {str(e)}"}
+        error_msg = f"Connection failed: {str(e)}"
+        logger.error(f"❌ {error_msg}", exc_info=True)
+        return {"success": False, "message": error_msg}
 
 
 @router.post("/test-connection", response_model=dict)
 async def test_connection(config: RelayTestRequest):
     """Test SMTP connection without creating a relay"""
+    logger.info(f"📨 POST /api/relays/test-connection endpoint called")
+    logger.info(f"   Request body: host={config.host}, port={config.port}, username={config.username}, use_tls={config.use_tls}")
+    
     result = await test_smtp_connection(config)
+    
+    logger.info(f"   Test result: {result}")
+    
     if not result["success"]:
+        logger.warning(f"   Raising HTTPException 400: {result['message']}")
         raise HTTPException(status_code=400, detail=result["message"])
+    
+    logger.info(f"   Returning success response")
     return result
 
 

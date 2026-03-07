@@ -2,8 +2,12 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+import logging
 
 from ..database import get_db, SupabaseDB
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -45,6 +49,7 @@ class TemplateResponse(BaseModel):
 @router.post("", response_model=TemplateResponse)
 async def create_template(template: TemplateCreate, db: SupabaseDB = Depends(get_db)):
     """Create a new email template"""
+    logger.info(f"📝 Creating template: {template.name} ({template.category})")
     try:
         template_data = template.model_dump()
         template_data["created_at"] = datetime.utcnow().isoformat()
@@ -52,6 +57,7 @@ async def create_template(template: TemplateCreate, db: SupabaseDB = Depends(get
         template_data["usage_count"] = 0
         
         result = await db.create_template(template_data)
+        logger.info(f"✅ Template created with ID: {result.get('id')}")
         return TemplateResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create template: {str(e)}")

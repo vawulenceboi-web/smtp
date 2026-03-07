@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
+import logging
+import os
 
 from .providers import ProviderConfig, ProviderFactory
 from .proxy import ProxyRotationManager, ProxyConfig
@@ -10,8 +12,22 @@ from .storage import get_campaign_status, register_campaign, list_campaigns
 from .api import relays, templates, settings, admins, notifications
 from datetime import datetime
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Email Orchestrator")
+
+# Add middleware to log all requests
+@app.middleware("http")
+async def log_requests(request, call_next):
+    logger.info(f"📥 {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"📤 {request.method} {request.url.path} -> {response.status_code}")
+    return response
 
 
 class EmailRequest(BaseModel):
@@ -87,10 +103,16 @@ async def enqueue_campaign(payload: CampaignRequest):
     Enqueue a batch campaign to be processed by Celery
     with slow-drip and provider failover.
     """
+    logger.info(f"📨 Campaign enqueue request: campaign_id={payload.campaign_id}")
+    logger.info(f"   Recipients: {len(payload.recipients)}, Subject: {payload.subject[:50]}")
+    logger.info(f"   Provider: {payload.provider_config.provider_type}")
+    
     # Optional IP reputation check before large batch
     if payload.sender_ip:
+        logger.info(f"   Checking IP reputation for {payload.sender_ip}")
         is_listed, details = await check_ip_reputation(payload.sender_ip)
         if is_listed:
+            logger.warning(f"   ⚠️ Sender IP {payload.sender_ip} has poor reputation")
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -100,6 +122,7 @@ async def enqueue_campaign(payload: CampaignRequest):
             )
 
     # record campaign metadata for listing
+    logger.info(f"   Registering campaign {payload.campaign_id}")
     register_campaign(
         payload.campaign_id,
         {
@@ -110,6 +133,7 @@ async def enqueue_campaign(payload: CampaignRequest):
         },
     )
 
+    logger.info(f"   Enqueueing campaign batch to Celery")
     enqueue_campaign_batch(
         campaign_id=payload.campaign_id,
         recipients=[r.model_dump() for r in payload.recipients],
@@ -119,6 +143,7 @@ async def enqueue_campaign(payload: CampaignRequest):
         provider_config=payload.provider_config.to_dict(),
         proxy_config=payload.proxy_config.to_dict() if payload.proxy_config else None,
     )
+    logger.info(f"✅ Campaign {payload.campaign_id} queued successfully")
     return {"status": "queued", "campaign_id": payload.campaign_id}
 
 

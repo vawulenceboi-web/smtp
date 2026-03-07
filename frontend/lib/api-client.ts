@@ -24,13 +24,17 @@ const getBackendUrl = (): string => {
 const buildUrl = (path: string): string => {
   const baseUrl = getBackendUrl();
   if (!baseUrl) {
-    console.warn('❌ No baseUrl set. Using relative URL:', path);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('❌ No baseUrl set. Using relative URL:', path);
+    }
     return path; // Relative URL
   }
   // Ensure path starts with /
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const fullUrl = `${baseUrl}${cleanPath}`;
-  console.log('✅ API URL:', fullUrl);
+  if (process.env.NODE_ENV === 'development') {
+    console.log('✅ API URL:', fullUrl);
+  }
   return fullUrl;
 };
 
@@ -40,7 +44,9 @@ export async function apiFetch<T>(
 ): Promise<{ data: T | null; error: string | null }> {
   try {
     const fullUrl = buildUrl(url);
-    console.log(`📤 ${options?.method || 'GET'} ${fullUrl}`, options?.body ? JSON.parse(options.body as string) : '');
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📤 ${options?.method || 'GET'} ${fullUrl}`, options?.body ? JSON.parse(options.body as string) : '');
+    }
     const response = await fetch(fullUrl, {
       ...options,
       headers: {
