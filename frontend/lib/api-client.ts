@@ -13,8 +13,23 @@ interface ApiErrorResponse {
 // Must start with NEXT_PUBLIC_ to be available in browser
 const getBackendUrl = (): string => {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  
+  // Log environment status to help debug issues
+  if (typeof window !== 'undefined') {
+    const logKey = '__api_client_log_shown__';
+    // Only log once per page load to avoid spam
+    if (!(window as any)[logKey]) {
+      console.log('🔧 API CLIENT DEBUG INFO:');
+      console.log('   NEXT_PUBLIC_API_URL:', apiUrl || '❌ NOT SET');
+      console.log('   NODE_ENV:', process.env.NODE_ENV);
+      console.log('   Current URL:', window.location.href);
+      (window as any)[logKey] = true;
+    }
+  }
+  
   if (!apiUrl) {
-    console.warn('NEXT_PUBLIC_API_URL is not set. API calls may fail.');
+    console.warn('❌ CRITICAL: NEXT_PUBLIC_API_URL is not set. Frontend will make relative API requests which will fail with 404!');
+    console.warn('   Fix: Set NEXT_PUBLIC_API_URL environment variable and restart dev server (or redeploy)');
     return ''; // Will make relative requests
   }
   return apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
@@ -23,18 +38,25 @@ const getBackendUrl = (): string => {
 // Build the full URL for API requests
 const buildUrl = (path: string): string => {
   const baseUrl = getBackendUrl();
+  
   if (!baseUrl) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('❌ No baseUrl set. Using relative URL:', path);
-    }
-    return path; // Relative URL
+    const relativeUrl = path.startsWith('/') ? path : `/${path}`;
+    console.warn(
+      `⚠️  NO BACKEND URL - Using relative URL: ${relativeUrl}\n` +
+      `    This will make requests to: ${typeof window !== 'undefined' ? window.location.origin : 'unknown'}\${relativeUrl}\n` +
+      `    This typically results in 404 errors!`
+    );
+    return relativeUrl;
   }
+  
   // Ensure path starts with /
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const fullUrl = `${baseUrl}${cleanPath}`;
+  
   if (process.env.NODE_ENV === 'development') {
-    console.log('✅ API URL:', fullUrl);
+    console.log('✅ Full API URL:', fullUrl);
   }
+  
   return fullUrl;
 };
 
@@ -44,9 +66,19 @@ export async function apiFetch<T>(
 ): Promise<{ data: T | null; error: string | null }> {
   try {
     const fullUrl = buildUrl(url);
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📤 ${options?.method || 'GET'} ${fullUrl}`, options?.body ? JSON.parse(options.body as string) : '');
+    const method = options?.method || 'GET';
+    
+    if (process.env.NODE_ENV === 'development' || !process.env.NEXT_PUBLIC_API_URL) {
+      console.log(`📤 ${method} ${fullUrl}`);
+      if (options?.body) {
+        try {
+          console.log('   Body:', JSON.parse(options.body as string));
+        } catch {
+          console.log('   Body:', options.body);
+        }
+      }
     }
+    
     const response = await fetch(fullUrl, {
       ...options,
       headers: {
@@ -54,6 +86,10 @@ export async function apiFetch<T>(
         ...options?.headers,
       },
     });
+
+    if (process.env.NODE_ENV === 'development' || !process.env.NEXT_PUBLIC_API_URL) {
+      console.log(`📥 Response: ${response.status} ${response.statusText}`);
+    }
 
     // Handle non-OK responses
     if (!response.ok) {
@@ -73,10 +109,14 @@ export async function apiFetch<T>(
           }
         }
 
-        return { data: null, error: errorMessage };
+        const error = `HTTP ${response.status}: ${errorMessage}`;
+        console.error(`❌ API Error: ${error}`);
+        return { data: null, error };
       } catch (e) {
         // If we can't parse the error response, return generic message
-        return { data: null, error: `HTTP ${response.status} - ${response.statusText}` };
+        const error = `HTTP ${response.status} - ${response.statusText}`;
+        console.error(`❌ API Error: ${error}`);
+        return { data: null, error };
       }
     }
 

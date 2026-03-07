@@ -38,6 +38,14 @@ export function Step1RelayConfig() {
     setConnectionMessage('');
 
     try {
+      console.log('🧪 Starting SMTP test connection...');
+      console.log('   Config:', {
+        host: relayConfig.host,
+        port: relayConfig.port,
+        username: relayConfig.username,
+        use_tls: relayConfig.useTLS,
+      });
+
       const { data, error } = await apiPost('/api/relays/test-connection', {
         host: relayConfig.host,
         port: relayConfig.port,
@@ -46,16 +54,22 @@ export function Step1RelayConfig() {
         use_tls: relayConfig.useTLS,
       });
 
+      console.log('📨 SMTP test response:', { data, error });
+
       if (error) {
+        console.error('❌ Connection failed:', error);
         setConnectionStatus('error');
         setConnectionMessage(`✗ Connection failed: ${error}`);
       } else if (data) {
+        console.log('✅ Connection successful:', data);
         setConnectionStatus('success');
         setConnectionMessage('✓ Connection successful! SMTP relay is responding correctly.');
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('❌ Test exception:', errMsg);
       setConnectionStatus('error');
-      setConnectionMessage(`✗ Connection failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setConnectionMessage(`✗ Connection failed: ${errMsg}`);
     } finally {
       setTestingConnection(false);
     }
