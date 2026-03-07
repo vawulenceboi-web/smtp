@@ -137,10 +137,10 @@ async def campaign_status(campaign_id: str):
     return get_campaign_status(campaign_id)
 
 
-# Register API routers
-app.include_router(relays.router)
-app.include_router(templates.router)
-app.include_router(settings.router)
-app.include_router(admins.router)
-app.include_router(notifications.router)
+# Register API routers with /api prefix
+app.include_router(relays.router, prefix="/api")
+app.include_router(templates.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
+app.include_router(admins.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 
