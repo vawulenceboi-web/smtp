@@ -63,9 +63,9 @@ async def test_smtp_connection(config: RelayTestRequest) -> dict:
     logger.info(f"   Username: {config.username}")
     
     try:
-        # Create SSL context if TLS is enabled
+        # Create TLS context if TLS is enabled
         context = ssl.create_default_context() if config.use_tls else None
-        logger.info(f"   SSL Context: {'created' if context else 'not created'}")
+        logger.info(f"   TLS Context: {'created' if context else 'not created'}")
         
         # Test connection
         logger.info(f"   Creating SMTP connection...")
@@ -73,7 +73,7 @@ async def test_smtp_connection(config: RelayTestRequest) -> dict:
             hostname=config.host,
             port=config.port,
             use_tls=config.use_tls,
-            ssl_context=context
+            tls_context=context  # Fixed: was ssl_context, should be tls_context
         ) as smtp:
             logger.info(f"   SMTP connection established")
             # Login to test credentials
