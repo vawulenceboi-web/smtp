@@ -41,8 +41,10 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [template, setTemplate] = useState<EmailTemplate>(initialTemplate);
   const [executionStatus, setExecutionStatus] = useState<EmailExecutionStatus[]>([]);
 
-  // Load from localStorage on mount
+  // Load from localStorage on mount (only in browser)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const saved = localStorage.getItem('campaignState');
     if (saved) {
       try {
@@ -54,6 +56,8 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
         setTemplate(state.template || initialTemplate);
       } catch (error) {
         console.error('Failed to load campaign state:', error);
+        // Clear corrupted localStorage
+        localStorage.removeItem('campaignState');
       }
     }
   }, []);

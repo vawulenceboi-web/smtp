@@ -23,10 +23,15 @@ const getBackendUrl = (): string => {
 // Build the full URL for API requests
 const buildUrl = (path: string): string => {
   const baseUrl = getBackendUrl();
-  if (!baseUrl) return path; // Relative URL
+  if (!baseUrl) {
+    console.warn('❌ No baseUrl set. Using relative URL:', path);
+    return path; // Relative URL
+  }
   // Ensure path starts with /
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl}${cleanPath}`;
+  const fullUrl = `${baseUrl}${cleanPath}`;
+  console.log('✅ API URL:', fullUrl);
+  return fullUrl;
 };
 
 export async function apiFetch<T>(
@@ -35,6 +40,7 @@ export async function apiFetch<T>(
 ): Promise<{ data: T | null; error: string | null }> {
   try {
     const fullUrl = buildUrl(url);
+    console.log(`📤 ${options?.method || 'GET'} ${fullUrl}`, options?.body ? JSON.parse(options.body as string) : '');
     const response = await fetch(fullUrl, {
       ...options,
       headers: {
