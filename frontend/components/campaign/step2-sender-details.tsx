@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Mail } from 'lucide-react';
 
 export function Step2SenderDetails() {
-  const { senderDetails, updateSenderDetails } = useCampaign();
+  const { senderDetails, updateSenderDetails, setStep } = useCampaign();
 
   const {
     register,
@@ -24,6 +24,7 @@ export function Step2SenderDetails() {
 
   const onSubmit = (data: any) => {
     updateSenderDetails(data);
+    setStep(3);
   };
 
   return (

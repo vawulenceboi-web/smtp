@@ -1,5 +1,6 @@
 // SMTP Relay Configuration
 export interface SMTPRelayConfig {
+  name: string;
   host: string;
   port: number;
   useTLS: boolean;

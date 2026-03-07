@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
 
 export function Step1RelayConfig() {
-  const { relayConfig, updateRelayConfig } = useCampaign();
+  const { relayConfig, updateRelayConfig, setStep } = useCampaign();
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [connectionMessage, setConnectionMessage] = useState('');
@@ -18,6 +18,7 @@ export function Step1RelayConfig() {
     handleSubmit,
     formState: { errors },
     watch,
+    setError,
   } = useForm({
     resolver: zodResolver(relayConfigSchema),
     defaultValues: relayConfig,
@@ -27,23 +28,41 @@ export function Step1RelayConfig() {
 
   const onSubmit = (data: any) => {
     updateRelayConfig(data);
+    setStep(2);
   };
 
   const handleTestConnection = async () => {
     setTestingConnection(true);
     setConnectionStatus('idle');
+    setConnectionMessage('');
 
-    // Simulate connection test
-    setTimeout(() => {
-      if (relayConfig.host && relayConfig.username && relayConfig.password) {
+    try {
+      const response = await fetch('/api/relays/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: relayConfig.host,
+          port: relayConfig.port,
+          username: relayConfig.username,
+          password: relayConfig.password,
+          use_tls: relayConfig.useTLS,
+        }),
+      });
+
+      if (response.ok) {
         setConnectionStatus('success');
-        setConnectionMessage('Connection successful! SMTP relay is responding.');
+        setConnectionMessage('✓ Connection successful! SMTP relay is responding correctly.');
       } else {
+        const error = await response.json();
         setConnectionStatus('error');
-        setConnectionMessage('Please fill in all required fields first.');
+        setConnectionMessage(`✗ Connection failed: ${error.detail || 'Unknown error'}`);
       }
+    } catch (err) {
+      setConnectionStatus('error');
+      setConnectionMessage(`✗ Connection failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
       setTestingConnection(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -54,10 +73,25 @@ export function Step1RelayConfig() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Relay Name */}
+        <div>
+          <label htmlFor="host" className="block text-sm font-medium text-foreground mb-2">
+            Relay Name (display name only)
+          </label>
+          <input
+            id="name"
+            type="text"
+            placeholder="e.g., Gmail SMTP, SendGrid, etc."
+            {...register('name')}
+            className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">Give this relay a friendly name to identify it</p>
+        </div>
+
         {/* Host */}
         <div>
           <label htmlFor="host" className="block text-sm font-medium text-foreground mb-2">
-            SMTP Host
+            SMTP Host <span className="text-destructive">*</span>
           </label>
           <input
             id="host"
@@ -78,7 +112,7 @@ export function Step1RelayConfig() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="port" className="block text-sm font-medium text-foreground mb-2">
-              Port
+              Port <span className="text-destructive">*</span>
             </label>
             <input
               id="port"
@@ -101,7 +135,7 @@ export function Step1RelayConfig() {
                 {...register('useTLS')}
                 className="w-4 h-4 cursor-pointer"
               />
-              <label htmlFor="useTLS" className="flex-1 cursor-pointer text-foreground">
+              <label htmlFor="useTLS" className="flex-1 cursor-pointer text-foreground text-sm">
                 {useTLS ? 'Enabled' : 'Disabled'}
               </label>
             </div>
@@ -111,7 +145,7 @@ export function Step1RelayConfig() {
         {/* Username */}
         <div>
           <label htmlFor="username" className="block text-sm font-medium text-foreground mb-2">
-            Username
+            Username <span className="text-destructive">*</span>
           </label>
           <input
             id="username"
@@ -131,7 +165,7 @@ export function Step1RelayConfig() {
         {/* Password */}
         <div>
           <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
-            Password
+            Password/API Key <span className="text-destructive">*</span>
           </label>
           <input
             id="password"
@@ -166,12 +200,19 @@ export function Step1RelayConfig() {
           </div>
         )}
 
+        {/* Info */}
+        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+          <p className="text-sm text-blue-300">
+            <strong>Tip:</strong> Click "Test Connection" to verify your SMTP settings before proceeding. Fill in all required fields (*) first.
+          </p>
+        </div>
+
         {/* Buttons */}
         <div className="flex gap-3 pt-4">
           <button
             type="button"
             onClick={handleTestConnection}
-            disabled={testingConnection}
+            disabled={testingConnection || !relayConfig.host || !relayConfig.username || !relayConfig.password}
             className="px-4 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 font-medium"
           >
             {testingConnection && <Loader className="w-4 h-4 animate-spin" />}

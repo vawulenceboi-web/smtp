@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
+import aiosmtplib
+import ssl
 
 from ..database import get_db, SupabaseDB
 
@@ -27,6 +29,15 @@ class RelayUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class RelayTestRequest(BaseModel):
+    """Test SMTP connection without creating a relay"""
+    host: str
+    port: int = 587
+    username: str
+    password: str
+    use_tls: bool = True
+
+
 class RelayResponse(BaseModel):
     id: str
     name: str
@@ -40,6 +51,35 @@ class RelayResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+async def test_smtp_connection(config: RelayTestRequest) -> dict:
+    """Test SMTP connection and return result"""
+    try:
+        # Create SSL context if TLS is enabled
+        context = ssl.create_default_context() if config.use_tls else None
+        
+        # Test connection
+        async with aiosmtplib.SMTP(
+            hostname=config.host,
+            port=config.port,
+            use_tls=config.use_tls,
+            ssl_context=context
+        ) as smtp:
+            # Login to test credentials
+            await smtp.login(config.username, config.password)
+            return {"success": True, "message": "SMTP connection successful"}
+    except Exception as e:
+        return {"success": False, "message": f"Connection failed: {str(e)}"}
+
+
+@router.post("/test-connection", response_model=dict)
+async def test_connection(config: RelayTestRequest):
+    """Test SMTP connection without creating a relay"""
+    result = await test_smtp_connection(config)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
 
 
 @router.post("", response_model=RelayResponse)
@@ -120,7 +160,7 @@ async def delete_relay(relay_id: str, db: SupabaseDB = Depends(get_db)):
 
 @router.post("/{relay_id}/test")
 async def test_relay(relay_id: str, db: SupabaseDB = Depends(get_db)):
-    """Test SMTP relay connection (updates last_used_at)"""
+    """Test existing SMTP relay connection (updates last_used_at)"""
     try:
         relay = await db.get_relay(relay_id)
         if not relay:

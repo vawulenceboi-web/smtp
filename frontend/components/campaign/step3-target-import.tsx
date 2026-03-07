@@ -6,7 +6,7 @@ import { validateEmailList } from '@/lib/validators';
 import { AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
 
 export function Step3TargetImport() {
-  const { targets, updateTargets } = useCampaign();
+  const { targets, updateTargets, setStep } = useCampaign();
   const [emailText, setEmailText] = useState(
     targets.map((t) => t.email).join('\n')
   );
@@ -37,6 +37,7 @@ export function Step3TargetImport() {
         isValid: true,
       }));
       updateTargets(emailTargets);
+      setStep(4);
     }
   };
 

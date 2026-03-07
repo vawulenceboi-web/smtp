@@ -13,6 +13,7 @@ import {
 const CampaignContext = createContext<CampaignContextType | undefined>(undefined);
 
 const initialRelayConfig: SMTPRelayConfig = {
+  name: '',
   host: '',
   port: 587,
   useTLS: true,

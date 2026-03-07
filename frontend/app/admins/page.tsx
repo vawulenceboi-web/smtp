@@ -21,6 +21,7 @@ export default function AdminsPage() {
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ email: '', name: '', role: 'admin' });
 
@@ -57,6 +58,7 @@ export default function AdminsPage() {
           body: JSON.stringify({ name: formData.name, role: formData.role }),
         });
         if (!response.ok) throw new Error('Failed to update admin');
+        setSuccessMessage('Admin updated successfully');
       } else {
         const response = await fetch('/api/admins', {
           method: 'POST',
@@ -64,11 +66,13 @@ export default function AdminsPage() {
           body: JSON.stringify(formData),
         });
         if (!response.ok) throw new Error('Failed to create admin');
+        setSuccessMessage('Admin created successfully');
       }
       await fetchAdmins();
       setFormData({ email: '', name: '', role: 'admin' });
       setEditingId(null);
       setError(null);
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Operation failed');
     }
@@ -81,6 +85,8 @@ export default function AdminsPage() {
       const response = await fetch(`/api/admins/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to deactivate admin');
       await fetchAdmins();
+      setSuccessMessage('Admin deactivated successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to deactivate');
     }
@@ -91,6 +97,8 @@ export default function AdminsPage() {
       const response = await fetch(`/api/admins/${id}/activate`, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to activate admin');
       await fetchAdmins();
+      setSuccessMessage('Admin activated successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to activate');
     }
@@ -107,9 +115,9 @@ export default function AdminsPage() {
 
   const getRoleBadge = (role: string) => {
     const colors: Record<string, string> = {
-      admin: 'bg-red-100 text-red-800',
-      moderator: 'bg-blue-100 text-blue-800',
-      viewer: 'bg-gray-100 text-gray-800',
+      admin: 'bg-primary/20 text-primary',
+      moderator: 'bg-secondary/20 text-secondary-foreground',
+      viewer: 'bg-muted text-muted-foreground',
     };
     return colors[role] || colors.viewer;
   };
@@ -125,6 +133,13 @@ export default function AdminsPage() {
         <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
           <AlertCircle className="w-5 h-5 text-destructive" />
           <span className="text-sm text-destructive">{error}</span>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+          <span className="text-sm text-green-600 dark:text-green-400">{successMessage}</span>
         </div>
       )}
 
@@ -144,8 +159,9 @@ export default function AdminsPage() {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 disabled={!!editingId}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
+              {editingId && <p className="text-xs text-muted-foreground">Email cannot be changed</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -154,7 +170,7 @@ export default function AdminsPage() {
                 placeholder="John Doe"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
@@ -164,7 +180,7 @@ export default function AdminsPage() {
               id="role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-sm"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="admin">Admin (Full Access)</option>
               <option value="moderator">Moderator (Manage Content)</option>
@@ -172,7 +188,9 @@ export default function AdminsPage() {
             </select>
           </div>
           <div className="flex gap-2">
-            <Button onClick={handleSave}>{editingId ? 'Update' : 'Create'} Admin</Button>
+            <Button onClick={handleSave} className="bg-primary hover:bg-primary/90">
+              {editingId ? 'Update Admin' : 'Create Admin'}
+            </Button>
             {editingId && (
               <Button variant="outline" onClick={() => {
                 setEditingId(null);
@@ -188,51 +206,52 @@ export default function AdminsPage() {
       {loading ? (
         <div className="text-center py-8 text-muted-foreground">Loading admins...</div>
       ) : admins.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">No administrators configured yet</p>
-        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground py-8">No administrators configured yet</p>
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardHeader>
             <CardTitle>Administrators</CardTitle>
-            <CardDescription>{admins.length} admin accounts</CardDescription>
+            <CardDescription>{admins.length} admin account{admins.length !== 1 ? 's' : ''}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {admins.map((admin) => (
-                <div key={admin.id} className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <h3 className="font-semibold text-sm text-foreground">{admin.name}</h3>
-                        <p className="text-xs text-muted-foreground">{admin.email}</p>
-                      </div>
+                <div key={admin.id} className="flex items-start justify-between gap-4 p-4 border border-border rounded-lg hover:bg-muted/30 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col gap-1">
+                      <h3 className="font-semibold text-sm text-foreground">{admin.name}</h3>
+                      <p className="text-xs text-muted-foreground break-all">{admin.email}</p>
                     </div>
-                    <div className="flex items-center gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getRoleBadge(admin.role)}`}>
-                        {admin.role}
+                        {admin.role.charAt(0).toUpperCase() + admin.role.slice(1)}
                       </span>
                       {admin.is_active ? (
-                        <span className="flex items-center gap-1 text-xs text-green-700">
+                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-1 rounded">
                           <CheckCircle className="w-3 h-3" /> Active
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-xs text-red-700">
+                        <span className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 px-2 py-1 rounded">
                           <XCircle className="w-3 h-3" /> Inactive
                         </span>
                       )}
                       {admin.last_login && (
                         <span className="text-xs text-muted-foreground">
-                          Last login: {new Date(admin.last_login).toLocaleDateString()}
+                          Last: {new Date(admin.last_login).toLocaleDateString()}
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 ml-4">
+                  <div className="flex gap-2 flex-shrink-0">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(admin)}
+                      className="h-8 w-8 p-0"
                     >
                       <Edit2 className="w-4 h-4" />
                     </Button>
@@ -241,16 +260,18 @@ export default function AdminsPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeactivate(admin.id)}
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive/90"
                       >
-                        <XCircle className="w-4 h-4 text-destructive" />
+                        <XCircle className="w-4 h-4" />
                       </Button>
                     ) : (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleActivate(admin.id)}
+                        className="h-8 w-8 p-0 text-green-600 dark:text-green-400 hover:text-green-700"
                       >
-                        <CheckCircle className="w-4 h-4 text-green-600" />
+                        <CheckCircle className="w-4 h-4" />
                       </Button>
                     )}
                   </div>

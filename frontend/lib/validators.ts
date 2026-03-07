@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const relayConfigSchema = z.object({
+  name: z.string().min(1, 'Relay name is required').max(100),
   host: z.string().min(1, 'SMTP host is required').min(3, 'Invalid host'),
   port: z.number().min(1).max(65535),
   useTLS: z.boolean(),
