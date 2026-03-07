@@ -11,6 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy entire backend directory structure
 COPY backend/ ./backend/
 
+# Copy Celery worker configuration (root-level files)
+COPY celery_worker.py .
+COPY tasks.py .
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
