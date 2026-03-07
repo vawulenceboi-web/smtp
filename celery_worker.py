@@ -6,6 +6,18 @@ Railway runs: celery -A celery_worker worker
 """
 
 import os
+import logging
+import sys
+
+# Setup logging for Celery
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(levelname)s] celery: %(message)s',
+    stream=sys.stdout,  # Output to stdout (which Railway captures)
+    force=True
+)
+logger = logging.getLogger(__name__)
+
 from celery import Celery
 
 # Railway provides REDIS_URL automatically when you add a Redis service
@@ -21,8 +33,8 @@ if not broker_url or not result_backend:
         "Set REDIS_URL or CELERY_BROKER_URL/CELERY_RESULT_BACKEND"
     )
 
-print(f"Celery Broker: {broker_url.split('@')[0] if '@' in broker_url else 'configured'}...")
-print(f"Celery Backend: {result_backend.split('@')[0] if '@' in result_backend else 'configured'}...")
+logger.info(f"Celery Broker: {broker_url.split('@')[0] if '@' in broker_url else 'configured'}...")
+logger.info(f"Celery Backend: {result_backend.split('@')[0] if '@' in result_backend else 'configured'}...")
 
 # Create the Celery app instance
 celery = Celery(

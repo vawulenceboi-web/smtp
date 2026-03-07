@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 import logging
+import sys
 import os
 
 from .providers import ProviderConfig, ProviderFactory
@@ -12,22 +13,31 @@ from .storage import get_campaign_status, register_campaign, list_campaigns
 from .api import relays, templates, settings, admins, notifications
 from datetime import datetime
 
-# Setup logging
+# Setup logging to stdout for Railway/production environments
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='[%(levelname)s] %(name)s: %(message)s',
+    stream=sys.stdout,  # Output to stdout (which Railway captures)
+    force=True  # Override any previous logger config
 )
 logger = logging.getLogger(__name__)
+
+# Log startup
+logger.info("🚀 Starting Email Orchestrator API...")
 
 app = FastAPI(title="Email Orchestrator")
 
 # Add middleware to log all requests
 @app.middleware("http")
 async def log_requests(request, call_next):
-    logger.info(f"📥 {request.method} {request.url.path}")
-    response = await call_next(request)
-    logger.info(f"📤 {request.method} {request.url.path} -> {response.status_code}")
-    return response
+    try:
+        logger.info(f"📥 {request.method} {request.url.path}")
+        response = await call_next(request)
+        logger.info(f"📤 {request.method} {request.url.path} -> {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"❌ Error in request middleware: {str(e)}", exc_info=True)
+        raise
 
 
 class EmailRequest(BaseModel):
@@ -149,7 +159,13 @@ async def enqueue_campaign(payload: CampaignRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    logger.info("🏥 Health check request")
+    return {
+        "status": "ok", 
+        "service": "Email Orchestrator API",
+        "version": "1.0.0",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 @app.get("/campaigns")
