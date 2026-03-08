@@ -1,18 +1,13 @@
 'use client';
 
-import { useState } from 'react';
 import { useCampaign } from '@/lib/campaign-context';
 import { relayConfigSchema } from '@/lib/validators';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import { apiPost } from '@/lib/api-client';
+import { AlertCircle } from 'lucide-react';
 
 export function Step1RelayConfig() {
   const { relayConfig, updateRelayConfig, setStep } = useCampaign();
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [connectionMessage, setConnectionMessage] = useState('');
 
   const {
     register,
@@ -30,49 +25,6 @@ export function Step1RelayConfig() {
   const onSubmit = (data: any) => {
     updateRelayConfig(data);
     setStep(2);
-  };
-
-  const handleTestConnection = async () => {
-    setTestingConnection(true);
-    setConnectionStatus('idle');
-    setConnectionMessage('');
-
-    try {
-      console.log('🧪 Starting SMTP test connection...');
-      console.log('   Config:', {
-        host: relayConfig.host,
-        port: relayConfig.port,
-        username: relayConfig.username,
-        use_tls: relayConfig.useTLS,
-      });
-
-      const { data, error } = await apiPost('/api/relays/test-connection', {
-        host: relayConfig.host,
-        port: relayConfig.port,
-        username: relayConfig.username,
-        password: relayConfig.password,
-        use_tls: relayConfig.useTLS,
-      });
-
-      console.log('📨 SMTP test response:', { data, error });
-
-      if (error) {
-        console.error('❌ Connection failed:', error);
-        setConnectionStatus('error');
-        setConnectionMessage(`✗ Connection failed: ${error}`);
-      } else if (data) {
-        console.log('✅ Connection successful:', data);
-        setConnectionStatus('success');
-        setConnectionMessage('✓ Connection successful! SMTP relay is responding correctly.');
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('❌ Test exception:', errMsg);
-      setConnectionStatus('error');
-      setConnectionMessage(`✗ Connection failed: ${errMsg}`);
-    } finally {
-      setTestingConnection(false);
-    }
   };
 
   return (
@@ -192,43 +144,15 @@ export function Step1RelayConfig() {
           )}
         </div>
 
-        {/* Connection Status */}
-        {connectionStatus !== 'idle' && (
-          <div
-            className={`p-4 rounded-lg border flex items-center gap-3 ${
-              connectionStatus === 'success'
-                ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                : 'bg-red-500/10 border-red-500/30 text-red-400'
-            }`}
-          >
-            {connectionStatus === 'success' ? (
-              <CheckCircle className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            )}
-            <span className="text-sm font-medium">{connectionMessage}</span>
-          </div>
-        )}
-
         {/* Info */}
         <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <p className="text-sm text-blue-300">
-            <strong>Tip:</strong> Click "Test Connection" to verify your SMTP settings before proceeding. Fill in all required fields (*) first.
+            <strong>Note:</strong> Make sure your SMTP credentials are correct. The connection will be tested when you send the campaign. All fields marked with (*) are required.
           </p>
         </div>
 
         {/* Buttons */}
         <div className="flex gap-3 pt-4">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={testingConnection || !relayConfig.host || !relayConfig.username || !relayConfig.password}
-            className="px-4 py-2 bg-accent text-accent-foreground rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 font-medium"
-          >
-            {testingConnection && <Loader className="w-4 h-4 animate-spin" />}
-            {testingConnection ? 'Testing...' : 'Test Connection'}
-          </button>
-
           <button
             type="submit"
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors font-medium ml-auto"

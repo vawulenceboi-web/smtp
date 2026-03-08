@@ -37,10 +37,30 @@ export function Step4TemplateEditor() {
       return;
     }
 
+    // Validate SMTP credentials format
+    const smtpErrors: string[] = [];
+    if (!relayConfig.host) smtpErrors.push('SMTP Host is required');
+    if (!relayConfig.port || relayConfig.port < 1 || relayConfig.port > 65535) smtpErrors.push('Valid SMTP Port is required (1-65535)');
+    if (!relayConfig.username) smtpErrors.push('SMTP Username is required');
+    if (!relayConfig.password) smtpErrors.push('SMTP Password is required');
+    
+    if (smtpErrors.length > 0) {
+      setSubmitStatus('error');
+      setSubmitMessage(`Invalid SMTP credentials: ${smtpErrors.join(', ')}`);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setSubmitStatus('idle');
       setSubmitMessage('');
+
+      console.log('📧 Submitting campaign with SMTP credentials:', {
+        host: relayConfig.host,
+        port: relayConfig.port,
+        username: relayConfig.username,
+        use_tls: relayConfig.useTLS,
+      });
 
       // Generate a campaign ID
       const campaignId = `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -74,10 +94,13 @@ export function Step4TemplateEditor() {
         },
       };
 
+      console.log('📨 Sending campaign request:', { campaign_id: campaignId, recipients: targets.length });
+
       // Submit campaign to backend
       const { data, error: apiError } = await apiPost('/campaigns/enqueue', campaignRequest);
 
       if (apiError) {
+        console.error('❌ API Error:', apiError);
         throw new Error(apiError);
       }
 
@@ -85,8 +108,10 @@ export function Step4TemplateEditor() {
       setSubmitStatus('success');
       setSubmitMessage(`Campaign successfully queued! ID: ${campaignId}`);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to submit campaign';
+      console.error('❌ Campaign submission error:', errMsg);
       setSubmitStatus('error');
-      setSubmitMessage(err instanceof Error ? err.message : 'Failed to submit campaign');
+      setSubmitMessage(errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -227,8 +252,7 @@ export function Step4TemplateEditor() {
         {/* Info Box */}
         <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <p className="text-sm text-blue-300">
-            <strong>Tip:</strong> Use HTML for rich formatting. Plain text is supported too. Variables
-            will be replaced with actual values during campaign execution.
+            <strong>Note:</strong> Your SMTP credentials will be validated when you submit the campaign. If there are any connection issues, you'll see an error message here. Use HTML for rich formatting or plain text.
           </p>
         </div>
 
