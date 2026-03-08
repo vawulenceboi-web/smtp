@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { CampaignProvider } from '@/lib/campaign-context'
+import { ConfigCheck } from '@/components/config-check'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -36,6 +37,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="font-sans antialiased bg-background text-foreground">
+        <ConfigCheck />
         <CampaignProvider>
           {children}
         </CampaignProvider>

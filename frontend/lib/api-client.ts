@@ -79,12 +79,23 @@ export async function apiFetch<T>(
       }
     }
     
-    const response = await fetch(fullUrl, {
+    // Add cache busting headers to prevent 304 responses
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      ...options?.headers,
+    };
+    
+    // Add timestamp to prevent caching
+    const urlWithTimestamp = fullUrl.includes('?') 
+      ? `${fullUrl}&_t=${Date.now()}` 
+      : `${fullUrl}?_t=${Date.now()}`;
+    
+    const response = await fetch(urlWithTimestamp, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers,
     });
 
     if (process.env.NODE_ENV === 'development' || !process.env.NEXT_PUBLIC_API_URL) {

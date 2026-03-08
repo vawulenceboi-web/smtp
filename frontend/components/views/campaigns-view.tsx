@@ -19,14 +19,22 @@ export function CampaignsView() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
+    setError(null);
     const load = async () => {
       try {
-        const { data, error } = await apiGet<{ campaigns: any[] }>('/api/campaigns');
-        if (error || !data) {
-          throw new Error('Failed to load campaigns');
+        const { data, error: apiError } = await apiGet<{ campaigns: any[] }>('/api/campaigns');
+        if (apiError) {
+          setError(apiError);
+          console.error('API Error:', apiError);
+          return;
+        }
+        if (!data) {
+          setError('No data received from server');
+          return;
         }
         const items = (data.campaigns || []) as any[];
         const mapped: CampaignSummary[] = items.map((c) => ({
@@ -38,8 +46,10 @@ export function CampaignsView() {
           created: c.created_at || '',
         }));
         setCampaigns(mapped);
-      } catch (error) {
-        console.error('Error loading campaigns', error);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+        setError(errorMsg);
+        console.error('Error loading campaigns', err);
       } finally {
         setIsLoading(false);
       }
@@ -113,6 +123,15 @@ export function CampaignsView() {
 
       {/* Campaigns Table */}
       <div className="bg-card border border-border rounded-lg overflow-hidden">
+        {error && (
+          <div className="p-6 bg-destructive/10 border-b border-destructive/20">
+            <p className="text-destructive font-medium">Failed to load campaigns</p>
+            <p className="text-destructive/80 text-sm mt-1">{error}</p>
+            <p className="text-destructive/70 text-xs mt-2">
+              Verify that NEXT_PUBLIC_API_URL environment variable is set correctly and backend is running.
+            </p>
+          </div>
+        )}
         {isLoading ? (
           <div className="p-12 text-center">
             <p className="text-muted-foreground">Loading campaigns…</p>
