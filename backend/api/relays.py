@@ -73,7 +73,8 @@ async def test_smtp_connection(config: RelayTestRequest) -> dict:
             hostname=config.host,
             port=config.port,
             use_tls=config.use_tls,
-            tls_context=context  # Fixed: was ssl_context, should be tls_context
+            tls_context=context,  # Fixed: was ssl_context, should be tls_context
+            timeout=7
         ) as smtp:
             logger.info(f"   SMTP connection established")
             # Login to test credentials
