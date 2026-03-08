@@ -12,6 +12,7 @@ from .reputation import check_ip_reputation
 from .tasks import enqueue_campaign_batch
 from .storage import get_campaign_status, register_campaign, list_campaigns
 from .api import relays, templates, settings, admins, notifications
+from .config import CONFIGURED_PROVIDERS
 from datetime import datetime
 
 # Setup logging to stdout for Railway/production environments
@@ -27,6 +28,13 @@ logger = logging.getLogger(__name__)
 logger.info("🚀 Starting Email Orchestrator API...")
 
 app = FastAPI(title="Email Orchestrator")
+
+# Display configured email providers
+if CONFIGURED_PROVIDERS:
+    provider_list = ", ".join(CONFIGURED_PROVIDERS.keys())
+    logger.info(f"📧 Email providers configured from environment: {provider_list}")
+else:
+    logger.warning("⚠️  No email providers configured! Set PROVIDER_* environment variables.")
 
 # Configure CORS to allow requests from Vercel frontend and localhost
 # This is needed so the frontend can make API calls to the backend

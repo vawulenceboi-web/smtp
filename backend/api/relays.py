@@ -7,6 +7,7 @@ import ssl
 import logging
 
 from ..database import get_db, SupabaseDB
+from ..config import CONFIGURED_PROVIDERS
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -16,24 +17,27 @@ router = APIRouter(prefix="/relays", tags=["relays"])
 
 class RelayCreate(BaseModel):
     name: str
-    host: str
-    port: int = 587
-    username: str
-    password: str
+    # Primary provider: either "smtp" with host/port, or choose from env-configured providers
+    provider_key: str  # e.g., "zoho", "sendgrid", "resend", "postmark", "brevo", "mailgun", or "smtp"
+    # For SMTP provider only:
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
     use_tls: bool = True
-    # API fallback options (optional)
-    fallback_providers: Optional[str] = None  # JSON string of fallback provider configs
-    api_key: Optional[str] = None  # For API-based fallbacks
-    provider_type: Optional[str] = None  # e.g., "sendgrid", "resend", "postmark"
+    # Fallback providers (comma-separated): e.g., "sendgrid,resend,postmark"
+    fallback_providers: Optional[str] = None
 
 
 class RelayUpdate(BaseModel):
     name: Optional[str] = None
-    host: Optional[str] = None
-    port: Optional[int] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
+    provider_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
     use_tls: Optional[bool] = None
+    fallback_providers: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -110,41 +114,118 @@ async def test_connection(config: RelayTestRequest):
     return result
 
 
+@router.get("/providers/configured")
+async def get_configured_providers():
+    """Get list of email providers configured in environment variables"""
+    logger.info(f"📧 GET /api/relays/providers/configured - Listing configured providers")
+    
+    providers_list = []
+    for provider_key, config in CONFIGURED_PROVIDERS.items():
+        provider_info = {
+            "key": provider_key,
+            "type": config.provider_type.value,
+            "from_email": config.from_email,
+        }
+        
+        # Add provider-specific info
+        if config.provider_type.value == "smtp":
+            provider_info["smtp_host"] = config.smtp_host
+            provider_info["smtp_port"] = config.smtp_port
+        
+        providers_list.append(provider_info)
+    
+    logger.info(f"   Found {len(providers_list)} configured providers")
+    return {
+        "providers": providers_list,
+        "available_types": ["smtp"] + list(CONFIGURED_PROVIDERS.keys() if CONFIGURED_PROVIDERS else [])
+    }
+
+
 @router.post("", response_model=RelayResponse)
 async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
-    """Create a new SMTP relay configuration"""
+    """Create a new relay configuration using providers from environment variables"""
     try:
-        # Test SMTP connection before saving
-        logger.info(f"🔍 Testing SMTP before creating relay: {relay.name}")
-        test_config = RelayTestRequest(
-            host=relay.host,
-            port=relay.port,
-            username=relay.username,
-            password=relay.password,
-            use_tls=relay.use_tls
-        )
+        logger.info(f"🔧 Creating relay: {relay.name} (provider_key: {relay.provider_key})")
         
-        test_result = await test_smtp_connection(test_config)
-        if not test_result["success"]:
-            logger.warning(f"❌ SMTP test failed for relay {relay.name}: {test_result['message']}")
-            raise HTTPException(status_code=400, detail=f"SMTP connection failed: {test_result['message']}")
+        # Determine which provider configuration to use
+        if relay.provider_key == "smtp":
+            # Custom SMTP relay
+            if not relay.smtp_host or not relay.smtp_username or not relay.smtp_password:
+                raise HTTPException(status_code=400, detail="SMTP relay requires host, username, and password")
+            
+            logger.info(f"🔍 Testing SMTP configuration for relay: {relay.name}")
+            test_config = RelayTestRequest(
+                host=relay.smtp_host,
+                port=relay.smtp_port,
+                username=relay.smtp_username,
+                password=relay.smtp_password,
+                use_tls=relay.use_tls
+            )
+            
+            test_result = await test_smtp_connection(test_config)
+            if not test_result["success"]:
+                logger.warning(f"❌ SMTP test failed: {test_result['message']}")
+                raise HTTPException(status_code=400, detail=f"SMTP connection failed: {test_result['message']}")
+            
+            logger.info(f"✅ SMTP test passed")
+            provider_config = {
+                "provider_key": "smtp",
+                "smtp_host": relay.smtp_host,
+                "smtp_port": relay.smtp_port,
+                "smtp_username": relay.smtp_username,
+                "use_tls": relay.use_tls,
+            }
         
-        logger.info(f"✅ SMTP test passed, creating relay {relay.name}")
+        else:
+            # Environment-configured provider
+            if relay.provider_key not in CONFIGURED_PROVIDERS:
+                available = list(CONFIGURED_PROVIDERS.keys())
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Provider '{relay.provider_key}' not configured in environment. Available: {available}"
+                )
+            
+            provider_config_obj = CONFIGURED_PROVIDERS[relay.provider_key]
+            logger.info(f"✅ Using {relay.provider_key} provider from environment variables")
+            
+            provider_config = {
+                "provider_key": relay.provider_key,
+                "provider_type": provider_config_obj.provider_type.value,
+                "from_email": provider_config_obj.from_email,
+                # Don't store sensitive credentials in relay table
+            }
         
-        relay_data = relay.model_dump()
-        relay_data["created_at"] = datetime.utcnow().isoformat()
-        relay_data["updated_at"] = datetime.utcnow().isoformat()
-        relay_data["status"] = "active"
+        # Build relay data
+        relay_data = {
+            "name": relay.name,
+            "status": "active",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+            "provider_config": provider_config,  # Store which provider to use
+        }
         
-        # Log fallback providers if configured
+        # Add fallback providers if specified
         if relay.fallback_providers:
-            logger.info(f"📌 Relay {relay.name} configured with API fallbacks: {relay.fallback_providers[:100]}")
-        if relay.provider_type:
-            logger.info(f"📌 Fallback provider type: {relay.provider_type}")
+            fallbacks = [f.strip() for f in relay.fallback_providers.split(",")]
+            # Validate fallback providers exist
+            for fb in fallbacks:
+                if fb not in CONFIGURED_PROVIDERS:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Fallback provider '{fb}' not configured in environment"
+                    )
+            relay_data["fallback_providers"] = ",".join(fallbacks)
+            logger.info(f"📌 Relay {relay.name} configured with fallback providers: {relay.fallback_providers}")
+        
+        # For backwards compatibility, store some fields at top level
+        relay_data["host"] = relay.smtp_host or "env-configured"
+        relay_data["port"] = relay.smtp_port or 587
+        relay_data["username"] = relay.smtp_username or relay.provider_key
         
         result = await db.create_relay(relay_data)
-        logger.info(f"✅ Relay {relay.name} created successfully with optional API fallbacks")
+        logger.info(f"✅ Relay {relay.name} created successfully")
         return RelayResponse(**result)
+    
     except HTTPException:
         raise
     except Exception as e:
