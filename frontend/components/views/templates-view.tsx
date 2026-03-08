@@ -33,6 +33,8 @@ export function TemplatesView() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [formData, setFormData] = useState<NewTemplateForm>({
     name: '',
     subject: '',
@@ -173,9 +175,17 @@ export function TemplatesView() {
                 <span className="text-xs text-muted-foreground">
                   Used {template.usage_count} times
                 </span>
-                <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded group-hover:bg-primary/30 transition-colors">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs"
+                  onClick={() => {
+                    setSelectedTemplate(template);
+                    setShowViewModal(true);
+                  }}
+                >
                   View
-                </span>
+                </Button>
               </div>
             </div>
           ))}
@@ -253,6 +263,55 @@ export function TemplatesView() {
             </Button>
             <Button onClick={handleCreateTemplate} disabled={isSubmitting} className="bg-primary hover:bg-primary/90">
               {isSubmitting ? 'Creating...' : 'Create Template'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Template Modal */}
+      <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
+        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>View Template: {selectedTemplate?.name}</DialogTitle>
+            <DialogDescription>
+              {selectedTemplate?.category && `Category: ${selectedTemplate.category}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTemplate && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Subject Line</Label>
+                <div className="p-3 bg-input rounded-lg border border-border text-sm text-foreground font-mono break-words">
+                  {selectedTemplate.subject}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Email Body</Label>
+                <div className="p-4 bg-input rounded-lg border border-border text-sm text-foreground font-mono whitespace-pre-wrap break-words max-h-96 overflow-y-auto">
+                  {selectedTemplate.body_content}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Created</Label>
+                  <p className="text-foreground">
+                    {new Date(selectedTemplate.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Usage Count</Label>
+                  <p className="text-foreground">{selectedTemplate.usage_count} times</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end">
+            <Button variant="outline" onClick={() => setShowViewModal(false)}>
+              Close
             </Button>
           </div>
         </DialogContent>
