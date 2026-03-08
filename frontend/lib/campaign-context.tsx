@@ -41,7 +41,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [template, setTemplate] = useState<EmailTemplate>(initialTemplate);
   const [executionStatus, setExecutionStatus] = useState<EmailExecutionStatus[]>([]);
 
-  // Load from localStorage on mount (only in browser)
+  // Load from localStorage on mount (only in browser) - but only if explicitly saved
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
@@ -54,6 +54,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
         setSenderDetails(state.senderDetails || initialSenderDetails);
         setTargets(state.targets || []);
         setTemplate(state.template || initialTemplate);
+        console.log('📂 Loaded campaign state from localStorage');
       } catch (error) {
         console.error('Failed to load campaign state:', error);
         // Clear corrupted localStorage
@@ -62,17 +63,8 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Save to localStorage whenever state changes
-  useEffect(() => {
-    const state = {
-      currentStep,
-      relayConfig,
-      senderDetails,
-      targets,
-      template,
-    };
-    localStorage.setItem('campaignState', JSON.stringify(state));
-  }, [currentStep, relayConfig, senderDetails, targets, template]);
+  // Only save to localStorage when explicitly saving (not on every change)
+  // This prevents excessive storage writes and reduces cache persistence issues
 
   const updateRelayConfig = (config: Partial<SMTPRelayConfig>) => {
     setRelayConfig((prev) => ({ ...prev, ...config }));
@@ -90,6 +82,18 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     setTemplate((prev) => ({ ...prev, ...newTemplate }));
   };
 
+  const saveCampaignState = () => {
+    const state = {
+      currentStep,
+      relayConfig,
+      senderDetails,
+      targets,
+      template,
+    };
+    localStorage.setItem('campaignState', JSON.stringify(state));
+    console.log('💾 Campaign state saved to localStorage');
+  };
+
   const reset = () => {
     setCurrentStep(1);
     setRelayConfig(initialRelayConfig);
@@ -98,6 +102,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     setTemplate(initialTemplate);
     setExecutionStatus([]);
     localStorage.removeItem('campaignState');
+    console.log('🗑️ Campaign state cleared');
   };
 
   const value: CampaignContextType = {
@@ -114,6 +119,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     updateTemplate,
     setExecutionStatus,
     reset,
+    saveCampaignState,
   };
 
   return (

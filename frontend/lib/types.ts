@@ -62,5 +62,4 @@ export interface CampaignContextType {
   updateTargets: (targets: EmailTarget[]) => void;
   updateTemplate: (template: Partial<EmailTemplate>) => void;
   setExecutionStatus: (statuses: EmailExecutionStatus[]) => void;
-  reset: () => void;
-}
+  reset: () => void;  saveCampaignState: () => void;}

@@ -5,10 +5,10 @@ import { Step1RelayConfig } from './step1-relay-config';
 import { Step2SenderDetails } from './step2-sender-details';
 import { Step3TargetImport } from './step3-target-import';
 import { Step4TemplateEditor } from './step4-template-editor';
-import { CheckCircle, Circle } from 'lucide-react';
+import { CheckCircle, Circle, Trash2 } from 'lucide-react';
 
 export function CampaignBuilder() {
-  const { currentStep, setStep, targets, relayConfig, senderDetails, template } = useCampaign();
+  const { currentStep, setStep, targets, relayConfig, senderDetails, template, reset } = useCampaign();
 
   const steps = [
     { number: 1, title: 'SMTP Relay', isComplete: !!relayConfig.host },
@@ -86,6 +86,20 @@ export function CampaignBuilder() {
                 style={{ width: `${((currentStep - 1) / 4) * 100}%` }}
               />
             </div>
+            
+            {/* Clear Data Button */}
+            <button
+              onClick={() => {
+                if (confirm('Are you sure? This will clear all campaign data and reload the form.')) {
+                  reset();
+                  window.location.reload();
+                }
+              }}
+              className="mt-4 w-full text-xs text-destructive hover:text-destructive/90 flex items-center justify-center gap-2 py-2 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear All Data
+            </button>
           </div>
         </div>
       </div>
