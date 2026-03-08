@@ -1,138 +1,240 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { CheckCircle, AlertCircle, Copy } from 'lucide-react';
 
 export default function DebugPage() {
-  const [config, setConfig] = useState<any>({});
-  const [tested, setTested] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [apiUrl, setApiUrl] = useState('');
+  const [nodeEnv, setNodeEnv] = useState('');
+  const [location, setLocation] = useState('');
+  const [testLog, setTestLog] = useState<string[]>([]);
+  const [isTesting, setIsTesting] = useState(false);
+  const [copied, setCopied] = useState('');
 
   useEffect(() => {
-    // Check environment variables
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    setConfig({
-      apiUrl: apiUrl || '(not set)',
-      isSet: !!apiUrl,
-      nodeEnv: process.env.NODE_ENV,
-      location: typeof window !== 'undefined' ? window.location.origin : 'N/A',
-    });
+    const url = process.env.NEXT_PUBLIC_API_URL;
+    setApiUrl(url || '❌ NOT SET');
+    setNodeEnv(process.env.NODE_ENV || 'unknown');
+    setLocation(typeof window !== 'undefined' ? window.location.href : 'N/A');
+
+    setTestLog([
+      `🚀 Debug page loaded: ${new Date().toISOString()}`,
+      `📍 Location: ${typeof window !== 'undefined' ? window.location.href : 'N/A'}`,
+      `🌍 NEXT_PUBLIC_API_URL: ${url || '❌ NOT SET'}`,
+      `📦 NODE_ENV: ${process.env.NODE_ENV || 'unknown'}`,
+    ]);
   }, []);
 
-  const testConnection = async () => {
-    setTesting(true);
+  const addLog = (message: string) => {
+    setTestLog(prev => [...prev, message]);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(text);
+    setTimeout(() => setCopied(''), 2000);
+  };
+
+  const testEndpoint = async (path: string, label: string) => {
+    if (!apiUrl || apiUrl === '❌ NOT SET') {
+      addLog('❌ Cannot test - NEXT_PUBLIC_API_URL not set');
+      return;
+    }
+
+    setIsTesting(true);
+    addLog(`\n🧪 Testing ${label}...`);
+
     try {
-      // Simple health check
-      const response = await fetch(
-        `${config.apiUrl}/health` || '/health'
-      );
-      const data = await response.json();
-      setResult({
-        status: response.status,
-        ok: response.ok,
-        data,
+      const fullUrl = `${apiUrl}${path}`;
+      addLog(`   URL: ${fullUrl}`);
+      
+      const response = await fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        }
       });
+
+      addLog(`   Status: ${response.status} ${response.statusText}`);
+
+      if (response.ok) {
+        try {
+          const data = await response.json();
+          addLog(`   ✅ Success: ${JSON.stringify(data).substring(0, 100)}`);
+        } catch {
+          const text = await response.text();
+          addLog(`   ✅ Success (text): ${text.substring(0, 100)}`);
+        }
+      } else {
+        addLog(`   ❌ Failed: Got ${response.status}`);
+      }
     } catch (err) {
-      setResult({
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      addLog(`   ❌ Error: ${message}`);
     } finally {
-      setTesting(false);
-      setTested(true);
+      setIsTesting(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-slate-900 text-white p-8">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold">Frontend API Configuration Debug</h1>
+  const hasApiUrl = apiUrl && apiUrl !== '❌ NOT SET';
 
-        {/* Environment Configuration */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 className="text-xl font-semibold mb-4">📋 Configuration</h2>
-          <div className="space-y-3">
-            <div className="flex items-start justify-between">
-              <span>NEXT_PUBLIC_API_URL:</span>
-              <div className="flex items-center gap-2">
-                {config.isSet ? (
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white p-6">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-4xl font-bold">🔧 API Debug Console</h1>
+          <p className="text-slate-300">Check your API configuration and test endpoints</p>
+        </div>
+
+        {/* Main Config Status */}
+        <div className={`rounded-lg border-2 p-6 ${hasApiUrl ? 'border-green-500/50 bg-green-500/10' : 'border-red-500/50 bg-red-500/10'}`}>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2 mb-2">
+                {hasApiUrl ? (
                   <>
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                    <code className="bg-slate-700 px-3 py-1 rounded text-green-400">
-                      {config.apiUrl}
-                    </code>
+                    <CheckCircle className="w-6 h-6 text-green-400" />
+                    API URL Configured ✅
                   </>
                 ) : (
                   <>
-                    <AlertCircle className="w-5 h-5 text-red-500" />
-                    <span className="text-red-400">NOT SET</span>
+                    <AlertCircle className="w-6 h-6 text-red-400" />
+                    API URL NOT SET ❌
                   </>
                 )}
-              </div>
+              </h2>
+              <p className={hasApiUrl ? 'text-green-300' : 'text-red-300'}>
+                {hasApiUrl ? 'Backend URL is configured' : 'Frontend cannot reach backend'}
+              </p>
             </div>
+          </div>
 
-            <div className="flex items-start justify-between">
-              <span>Frontend URL:</span>
-              <code className="bg-slate-700 px-3 py-1 rounded">{config.location}</code>
-            </div>
-
-            <div className="flex items-start justify-between">
-              <span>Environment:</span>
-              <code className="bg-slate-700 px-3 py-1 rounded">{config.nodeEnv}</code>
+          <div className="bg-slate-900 rounded p-4 border border-slate-700">
+            <p className="text-sm text-slate-400 mb-2">Value:</p>
+            <div className="flex items-center gap-2">
+              <code className={`flex-1 font-mono text-sm break-all ${hasApiUrl ? 'text-green-400' : 'text-red-400'}`}>
+                {apiUrl}
+              </code>
+              {hasApiUrl && (
+                <button
+                  onClick={() => copyToClipboard(apiUrl)}
+                  className="p-2 hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+                  title="Copy"
+                >
+                  {copied === apiUrl ? '✓' : <Copy className="w-4 h-4" />}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Test Connection */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 className="text-xl font-semibold mb-4">🧪 Test Backend Connection</h2>
-
-          <button
-            onClick={testConnection}
-            disabled={testing || !config.isSet}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded font-medium flex items-center gap-2 transition"
-          >
-            {testing && <Loader className="w-4 h-4 animate-spin" />}
-            {testing ? 'Testing...' : 'Test Backend Health Check'}
-          </button>
-
-          {tested && result && (
-            <div className="mt-4 p-4 rounded border border-slate-700 bg-slate-900">
-              {result.error ? (
-                <div className="text-red-400">
-                  <p className="font-semibold">❌ Error:</p>
-                  <code className="text-sm">{result.error}</code>
+        {/* Fix Instructions */}
+        {!hasApiUrl && (
+          <div className="rounded-lg bg-yellow-500/20 border-2 border-yellow-500/50 p-6">
+            <h3 className="font-bold text-yellow-300 mb-3 flex items-center gap-2">
+              ⚠️ How to Fix
+            </h3>
+            <ol className="space-y-2 text-sm">
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">1.</span>
+                Go to <code className="bg-slate-900 px-2 py-1 rounded text-xs">Vercel.com</code> → Dashboard
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">2.</span>
+                Select <code className="bg-slate-900 px-2 py-1 rounded text-xs">smtp</code> project
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">3.</span>
+                Go to <code className="bg-slate-900 px-2 py-1 rounded text-xs">Settings</code> → <code className="bg-slate-900 px-2 py-1 rounded text-xs">Environment Variables</code>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">4.</span>
+                Click <strong>Add</strong>, then fill in:
+                <div className="bg-slate-900 p-3 rounded border border-slate-600 text-xs font-mono mt-1 w-full">
+                  <div>Key: <span className="text-blue-300">NEXT_PUBLIC_API_URL</span></div>
+                  <div>Value: <span className="text-blue-300">https://smtp-production-2752.up.railway.app</span></div>
+                  <div>Select: <span className="text-blue-300">Production</span></div>
                 </div>
-              ) : (
-                <div className={result.ok ? 'text-green-400' : 'text-yellow-400'}>
-                  <p className="font-semibold">
-                    {result.ok ? '✅ Success' : '⚠️ Response received but not OK'}
-                  </p>
-                  <pre className="text-sm mt-2 bg-slate-800 p-2 rounded overflow-x-auto">
-                    {JSON.stringify(result, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">5.</span>
+                Go to <code className="bg-slate-900 px-2 py-1 rounded text-xs">Deployments</code> → Click latest commit → <code className="bg-slate-900 px-2 py-1 rounded text-xs">Redeploy</code>
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">6.</span>
+                Wait for deployment (2-3 min, look for ✅ checkmark)
+              </li>
+              <li className="flex gap-2">
+                <span className="text-yellow-400 font-bold shrink-0">7.</span>
+                Refresh this page: <kbd className="bg-slate-900 px-2 py-1 rounded text-xs">Ctrl+Shift+R</kbd>
+              </li>
+            </ol>
+          </div>
+        )}
+
+        {/* Test Buttons */}
+        {hasApiUrl && (
+          <div className="rounded-lg border/20 border-2 p-6 space-y-3">
+            <h3 className="font-bold mb-3">Test Endpoints</h3>
+            <button
+              onClick={() => testEndpoint('/health', 'Health Check')}
+              disabled={isTesting}
+              className="w-full p-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded font-medium transition-colors"
+            >
+              🏥 Test /health
+            </button>
+            <button
+              onClick={() => testEndpoint('/api/relays', 'List Relays')}
+              disabled={isTesting}
+              className="w-full p-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded font-medium transition-colors"
+            >
+              🔗 Test /api/relays
+            </button>
+            <button
+              onClick={() => testEndpoint('/api/templates', 'List Templates')}
+              disabled={isTesting}
+              className="w-full p-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded font-medium transition-colors"
+            >
+              📄 Test /api/templates
+            </button>
+          </div>
+        )}
+
+        {/* Log Output */}
+        <div className="rounded-lg border border-slate-600 bg-slate-950 p-6">
+          <h3 className="font-bold mb-3">Debug Log</h3>
+          <div className="bg-black rounded p-4 font-mono text-xs text-slate-300 overflow-auto max-h-64 space-y-1">
+            {testLog.map((log, i) => (
+              <div
+                key={i}
+                className={`${
+                  log.includes('✅')
+                    ? 'text-green-400'
+                    : log.includes('❌')
+                    ? 'text-red-400'
+                    : log.includes('🧪')
+                    ? 'text-yellow-400'
+                    : 'text-slate-300'
+                }`}
+              >
+                {log}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Instructions */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-blue-600 border-dashed">
-          <h2 className="text-xl font-semibold mb-4">📖 Setup Instructions</h2>
-          <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300">
-            <li>Create <code className="bg-slate-700 px-2 py-1 rounded">frontend/.env.local</code></li>
-            <li>Add: <code className="bg-slate-700 px-2 py-1 rounded">NEXT_PUBLIC_API_URL=http://localhost:8000</code></li>
-            <li>Kill Next.js: <code className="bg-slate-700 px-2 py-1 rounded">pkill -f "next dev"</code></li>
-            <li>Restart: <code className="bg-slate-700 px-2 py-1 rounded">cd frontend && pnpm dev</code></li>
-            <li>Refresh this page</li>
-          </ol>
-        </div>
-
-        {/* Debug Info */}
-        <div className="text-xs text-slate-400 p-4 bg-slate-800 rounded border border-slate-700">
-          <p>If NEXT_PUBLIC_API_URL shows "(not set)": Restart the dev server</p>
-          <p>If test fails with connection error: Check backend is running on port 8000</p>
+        {/* Info Box */}
+        <div className="rounded-lg border border-slate-600 bg-slate-900/50 p-6 space-y-2 text-sm">
+          <p>
+            <strong>Current Setup:</strong> Your frontend on Vercel must know where your backend (Railway) is located.
+          </p>
+          <p>
+            <strong>Problem:</strong> Without NEXT_PUBLIC_API_URL, requests go to Vercel instead of Railway → 404 errors
+          </p>
+          <p>
+            <strong>Solution:</strong> Set the environment variable to tell frontend where backend lives: <code className="bg-slate-800 px-2 py-1 rounded text-xs">https://smtp-production-2752.up.railway.app</code>
+          </p>
         </div>
       </div>
     </div>
