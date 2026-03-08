@@ -7,17 +7,27 @@ import { apiGet } from '@/lib/api-client';
 
 export function Header() {
   const [unreadCount, setUnreadCount] = useState(0);
+  // TODO: Get actual admin ID from auth context once implemented
+  // For now, skip notification fetching since we don't have admin ID
+  const adminId: string | null = null;
 
   useEffect(() => {
+    if (!adminId) {
+      console.log('⏭️  Skipping notification fetch - admin ID not available');
+      return;
+    }
+    
     fetchUnreadCount();
     // Poll for unread count every 30 seconds
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [adminId]);
 
   const fetchUnreadCount = async () => {
+    if (!adminId) return;
+    
     try {
-      const { data, error } = await apiGet<{ unread_count: number }>('/api/notifications/admin/null/unread-count');
+      const { data, error } = await apiGet<{ unread_count: number }>(`/api/notifications/admin/${adminId}/unread-count`);
       if (!error && data) {
         setUnreadCount(data.unread_count || 0);
       }

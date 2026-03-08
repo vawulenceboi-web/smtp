@@ -12,7 +12,7 @@ interface ApiErrorResponse {
 // Get the backend API URL from environment variable
 // Must start with NEXT_PUBLIC_ to be available in browser
 const getBackendUrl = (): string => {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  let apiUrl = process.env.NEXT_PUBLIC_API_URL;
   
   // Log environment status to help debug issues
   if (typeof window !== 'undefined') {
@@ -32,6 +32,14 @@ const getBackendUrl = (): string => {
     console.warn('   Fix: Set NEXT_PUBLIC_API_URL environment variable and restart dev server (or redeploy)');
     return ''; // Will make relative requests
   }
+  
+  // Ensure URL has protocol
+  if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+    console.warn(`⚠️  NEXT_PUBLIC_API_URL missing protocol. Adding https://`);
+    apiUrl = `https://${apiUrl}`;
+  }
+  
+  // Remove trailing slash
   return apiUrl.endsWith('/') ? apiUrl.slice(0, -1) : apiUrl;
 };
 
