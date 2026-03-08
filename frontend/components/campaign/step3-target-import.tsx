@@ -93,8 +93,8 @@ export function Step3TargetImport() {
                 </div>
                 <div className="max-h-24 overflow-y-auto">
                   <div className="space-y-1">
-                    {validationResult.emails.slice(0, 3).map((email, idx) => (
-                      <p key={idx} className="text-xs text-green-200">
+                    {validationResult.emails.slice(0, 3).map((email, i) => (
+                      <p key={i} className="text-xs text-green-200">
                         ✓ {email}
                       </p>
                     ))}
@@ -119,8 +119,8 @@ export function Step3TargetImport() {
                 </div>
                 <div className="max-h-24 overflow-y-auto">
                   <div className="space-y-1">
-                    {validationResult.invalid.slice(0, 3).map((email, idx) => (
-                      <p key={idx} className="text-xs text-red-200">
+                    {validationResult.invalid.slice(0, 3).map((email, i) => (
+                      <p key={i} className="text-xs text-red-200">
                         ✗ {email}
                       </p>
                     ))}

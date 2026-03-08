@@ -97,7 +97,7 @@ export function Step4TemplateEditor() {
       console.log('📨 Sending campaign request:', { campaign_id: campaignId, recipients: targets.length });
 
       // Submit campaign to backend
-      const { data, error: apiError } = await apiPost('/campaigns/enqueue', campaignRequest);
+      const { data, error: apiError } = await apiPost('/api/campaigns', campaignRequest);
 
       if (apiError) {
         console.error('❌ API Error:', apiError);
@@ -196,8 +196,8 @@ export function Step4TemplateEditor() {
                 <p className="text-sm font-medium text-foreground">Available Variables</p>
               </div>
               <div className="space-y-2">
-                {placeholderVariables.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-2">
+                {placeholderVariables.map((item, i) => (
+                  <div key={i} className="flex items-start gap-2">
                     <code className="px-2 py-1 bg-input rounded text-xs font-mono text-accent">
                       {item.var}
                     </code>
