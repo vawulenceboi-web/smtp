@@ -109,14 +109,35 @@ async def test_connection(config: RelayTestRequest):
 async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
     """Create a new SMTP relay configuration"""
     try:
+        # Test SMTP connection before saving
+        logger.info(f"🔍 Testing SMTP before creating relay: {relay.name}")
+        test_config = RelayTestRequest(
+            host=relay.host,
+            port=relay.port,
+            username=relay.username,
+            password=relay.password,
+            use_tls=relay.use_tls
+        )
+        
+        test_result = await test_smtp_connection(test_config)
+        if not test_result["success"]:
+            logger.warning(f"❌ SMTP test failed for relay {relay.name}: {test_result['message']}")
+            raise HTTPException(status_code=400, detail=f"SMTP connection failed: {test_result['message']}")
+        
+        logger.info(f"✅ SMTP test passed, creating relay {relay.name}")
+        
         relay_data = relay.model_dump()
         relay_data["created_at"] = datetime.utcnow().isoformat()
         relay_data["updated_at"] = datetime.utcnow().isoformat()
         relay_data["status"] = "active"
         
         result = await db.create_relay(relay_data)
+        logger.info(f"✅ Relay {relay.name} created successfully")
         return RelayResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"❌ Failed to create relay: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create relay: {str(e)}")
 
 

@@ -191,12 +191,12 @@ async def health():
 
 @app.get("/api/campaigns")
 async def campaigns():
-    return {"campaigns": list_campaigns()}
+    return {"campaigns": await list_campaigns()}
 
 
 @app.get("/api/campaigns/{campaign_id}/status")
 async def campaign_status(campaign_id: str):
-    return get_campaign_status(campaign_id)
+    return await get_campaign_status(campaign_id)
 
 
 # Register API routers with /api prefix
