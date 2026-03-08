@@ -149,6 +149,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.admins TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
 
 -- Create triggers to automatically update updated_at timestamps
+-- Drop existing triggers first to allow safe re-runs
+DROP TRIGGER IF EXISTS relays_update_timestamp ON public.relays CASCADE;
+DROP TRIGGER IF EXISTS templates_update_timestamp ON public.templates CASCADE;
+DROP TRIGGER IF EXISTS campaigns_update_timestamp ON public.campaigns CASCADE;
+DROP TRIGGER IF EXISTS campaign_recipients_update_timestamp ON public.campaign_recipients CASCADE;
+DROP TRIGGER IF EXISTS settings_update_timestamp ON public.settings CASCADE;
+DROP TRIGGER IF EXISTS admins_update_timestamp ON public.admins CASCADE;
+DROP TRIGGER IF EXISTS notifications_update_timestamp ON public.notifications CASCADE;
+
 CREATE OR REPLACE FUNCTION update_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -168,6 +177,7 @@ FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
 
 CREATE TRIGGER campaign_recipients_update_timestamp BEFORE UPDATE ON public.campaign_recipients
 FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+
 CREATE TRIGGER settings_update_timestamp BEFORE UPDATE ON public.settings
 FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
 
@@ -177,11 +187,16 @@ FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
 CREATE TRIGGER notifications_update_timestamp BEFORE UPDATE ON public.notifications
 FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
 
--- Insert default settings
+-- Insert default settings (safe - uses ON CONFLICT to handle existing rows)
 INSERT INTO public.settings (key, value, category, description)
 VALUES
   ('smtp_timeout', '30', 'email', 'SMTP connection timeout in seconds'),
   ('max_recipients_per_batch', '100', 'performance', 'Maximum recipients to process in single batch'),
   ('notification_retention_days', '30', 'general', 'Days to keep notifications before auto-delete'),
   ('enable_ip_reputation_check', 'true', 'security', 'Enable IP reputation checking for campaigns')
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO UPDATE SET
+  value = EXCLUDED.value,
+  updated_at = NOW();
+
+-- Log successful initialization
+SELECT 'Database initialization completed successfully!' AS status;

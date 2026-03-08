@@ -128,7 +128,7 @@ class CampaignRequest(BaseModel):
     sender_ip: Optional[str] = None
 
 
-@app.post("/campaigns/enqueue")
+@app.post("/api/campaigns/enqueue")
 async def enqueue_campaign(payload: CampaignRequest):
     """
     Enqueue a batch campaign to be processed by Celery
@@ -189,12 +189,12 @@ async def health():
     }
 
 
-@app.get("/campaigns")
+@app.get("/api/campaigns")
 async def campaigns():
     return {"campaigns": list_campaigns()}
 
 
-@app.get("/campaigns/{campaign_id}/status")
+@app.get("/api/campaigns/{campaign_id}/status")
 async def campaign_status(campaign_id: str):
     return get_campaign_status(campaign_id)
 
