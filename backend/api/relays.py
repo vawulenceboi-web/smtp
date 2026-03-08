@@ -17,21 +17,33 @@ router = APIRouter(prefix="/relays", tags=["relays"])
 
 class RelayCreate(BaseModel):
     name: str
-    # Primary provider: either "smtp" with host/port, or choose from env-configured providers
-    provider_key: str  # e.g., "zoho", "sendgrid", "resend", "postmark", "brevo", "mailgun", or "smtp"
-    # For SMTP provider only:
-    smtp_host: Optional[str] = None
-    smtp_port: int = 587
-    smtp_username: Optional[str] = None
-    smtp_password: Optional[str] = None
+    # Support both old format (host/port/username/password) and new format (provider_key)
+    provider_key: Optional[str] = None  # e.g., "zoho", "sendgrid", or "smtp" for custom SMTP
+    
+    # Old format (backwards compatibility): Custom SMTP details
+    host: Optional[str] = None  # For custom SMTP
+    port: int = 587
+    username: Optional[str] = None  # For custom SMTP
+    password: Optional[str] = None  # For custom SMTP
     use_tls: bool = True
+    
     # Fallback providers (comma-separated): e.g., "sendgrid,resend,postmark"
     fallback_providers: Optional[str] = None
+    
+    # Alternative field names (support both naming conventions)
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
 
 
 class RelayUpdate(BaseModel):
     name: Optional[str] = None
     provider_key: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None
@@ -143,22 +155,39 @@ async def get_configured_providers():
 
 @router.post("", response_model=RelayResponse)
 async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
-    """Create a new relay configuration using providers from environment variables"""
+    """Create a new relay configuration (supports both old and new API formats)"""
     try:
-        logger.info(f"🔧 Creating relay: {relay.name} (provider_key: {relay.provider_key})")
+        logger.info(f"🔧 Creating relay: {relay.name}")
+        
+        # Normalize field names (support both host/username and smtp_host/smtp_username)
+        smtp_host = relay.smtp_host or relay.host
+        smtp_port = relay.smtp_port or relay.port or 587
+        smtp_username = relay.smtp_username or relay.username
+        smtp_password = relay.smtp_password or relay.password
+        provider_key = relay.provider_key
         
         # Determine which provider configuration to use
-        if relay.provider_key == "smtp":
+        # Priority: provider_key > host-based SMTP
+        
+        if not provider_key and smtp_host:
+            # Old format: custom SMTP relay
+            provider_key = "smtp"
+            logger.info(f"🔍 Old format detected: using custom SMTP ({smtp_host}:{smtp_port})")
+        
+        if provider_key == "smtp" or (not provider_key and smtp_host):
             # Custom SMTP relay
-            if not relay.smtp_host or not relay.smtp_username or not relay.smtp_password:
-                raise HTTPException(status_code=400, detail="SMTP relay requires host, username, and password")
+            if not smtp_host or not smtp_username or not smtp_password:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="SMTP relay requires host, username, and password"
+                )
             
             logger.info(f"🔍 Testing SMTP configuration for relay: {relay.name}")
             test_config = RelayTestRequest(
-                host=relay.smtp_host,
-                port=relay.smtp_port,
-                username=relay.smtp_username,
-                password=relay.smtp_password,
+                host=smtp_host,
+                port=smtp_port,
+                username=smtp_username,
+                password=smtp_password,
                 use_tls=relay.use_tls
             )
             
@@ -170,30 +199,36 @@ async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
             logger.info(f"✅ SMTP test passed")
             provider_config = {
                 "provider_key": "smtp",
-                "smtp_host": relay.smtp_host,
-                "smtp_port": relay.smtp_port,
-                "smtp_username": relay.smtp_username,
+                "smtp_host": smtp_host,
+                "smtp_port": smtp_port,
+                "smtp_username": smtp_username,
                 "use_tls": relay.use_tls,
             }
         
-        else:
+        elif provider_key:
             # Environment-configured provider
-            if relay.provider_key not in CONFIGURED_PROVIDERS:
+            if provider_key not in CONFIGURED_PROVIDERS:
                 available = list(CONFIGURED_PROVIDERS.keys())
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Provider '{relay.provider_key}' not configured in environment. Available: {available}"
+                    detail=f"Provider '{provider_key}' not configured in environment. Available: {available}"
                 )
             
-            provider_config_obj = CONFIGURED_PROVIDERS[relay.provider_key]
-            logger.info(f"✅ Using {relay.provider_key} provider from environment variables")
+            provider_config_obj = CONFIGURED_PROVIDERS[provider_key]
+            logger.info(f"✅ Using {provider_key} provider from environment variables")
             
             provider_config = {
-                "provider_key": relay.provider_key,
+                "provider_key": provider_key,
                 "provider_type": provider_config_obj.provider_type.value,
                 "from_email": provider_config_obj.from_email,
                 # Don't store sensitive credentials in relay table
             }
+        
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either provide 'provider_key' or custom SMTP details (host, port, username, password)"
+            )
         
         # Build relay data
         relay_data = {
@@ -218,9 +253,9 @@ async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
             logger.info(f"📌 Relay {relay.name} configured with fallback providers: {relay.fallback_providers}")
         
         # For backwards compatibility, store some fields at top level
-        relay_data["host"] = relay.smtp_host or "env-configured"
-        relay_data["port"] = relay.smtp_port or 587
-        relay_data["username"] = relay.smtp_username or relay.provider_key
+        relay_data["host"] = smtp_host or "env-configured"
+        relay_data["port"] = smtp_port or 587
+        relay_data["username"] = smtp_username or provider_key
         
         result = await db.create_relay(relay_data)
         logger.info(f"✅ Relay {relay.name} created successfully")

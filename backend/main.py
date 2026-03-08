@@ -198,8 +198,64 @@ async def health():
 
 
 @app.get("/api/campaigns")
-async def campaigns():
+async def get_campaigns():
+    """List all campaigns"""
     return {"campaigns": await list_campaigns()}
+
+
+@app.post("/api/campaigns")
+async def post_campaign(payload: CampaignRequest):
+    """
+    Alias for campaign enqueue - allows POST to /api/campaigns directly
+    (frontend convenience - redirects to /api/campaigns/enqueue logic)
+    """
+    logger.info(f"📨 POST /api/campaigns endpoint called (alias for enqueue)")
+    logger.info(f"   Campaign ID: {payload.campaign_id}")
+    logger.info(f"   Recipients: {len(payload.recipients)}")
+    
+    # Identical logic to /api/campaigns/enqueue
+    logger.info(f"📨 Campaign enqueue request: campaign_id={payload.campaign_id}")
+    logger.info(f"   Recipients: {len(payload.recipients)}, Subject: {payload.subject[:50]}")
+    logger.info(f"   Provider: {payload.provider_config.provider_type}")
+    
+    # Optional IP reputation check before large batch
+    if payload.sender_ip:
+        logger.info(f"   Checking IP reputation for {payload.sender_ip}")
+        is_listed, details = await check_ip_reputation(payload.sender_ip)
+        if is_listed:
+            logger.warning(f"   ⚠️ Sender IP {payload.sender_ip} has poor reputation")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Sender IP has poor reputation; aborting campaign.",
+                    "details": details,
+                },
+            )
+
+    # record campaign metadata for listing
+    logger.info(f"   Registering campaign {payload.campaign_id}")
+    register_campaign(
+        payload.campaign_id,
+        {
+            "name": payload.subject,
+            "created_at": datetime.utcnow().isoformat(),
+            "target_count": str(len(payload.recipients or [])),
+            "status": "queued",
+        },
+    )
+
+    logger.info(f"   Enqueueing campaign batch to Celery")
+    enqueue_campaign_batch(
+        campaign_id=payload.campaign_id,
+        recipients=[r.model_dump() for r in payload.recipients],
+        subject=payload.subject,
+        body=payload.body,
+        headers=payload.headers,
+        provider_config=payload.provider_config.to_dict(),
+        proxy_config=payload.proxy_config.to_dict() if payload.proxy_config else None,
+    )
+    logger.info(f"✅ Campaign {payload.campaign_id} queued successfully")
+    return {"status": "queued", "campaign_id": payload.campaign_id}
 
 
 @app.get("/api/campaigns/{campaign_id}/status")
