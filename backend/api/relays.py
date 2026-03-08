@@ -21,6 +21,10 @@ class RelayCreate(BaseModel):
     username: str
     password: str
     use_tls: bool = True
+    # API fallback options (optional)
+    fallback_providers: Optional[str] = None  # JSON string of fallback provider configs
+    api_key: Optional[str] = None  # For API-based fallbacks
+    provider_type: Optional[str] = None  # e.g., "sendgrid", "resend", "postmark"
 
 
 class RelayUpdate(BaseModel):
@@ -132,8 +136,14 @@ async def create_relay(relay: RelayCreate, db: SupabaseDB = Depends(get_db)):
         relay_data["updated_at"] = datetime.utcnow().isoformat()
         relay_data["status"] = "active"
         
+        # Log fallback providers if configured
+        if relay.fallback_providers:
+            logger.info(f"📌 Relay {relay.name} configured with API fallbacks: {relay.fallback_providers[:100]}")
+        if relay.provider_type:
+            logger.info(f"📌 Fallback provider type: {relay.provider_type}")
+        
         result = await db.create_relay(relay_data)
-        logger.info(f"✅ Relay {relay.name} created successfully")
+        logger.info(f"✅ Relay {relay.name} created successfully with optional API fallbacks")
         return RelayResponse(**result)
     except HTTPException:
         raise
