@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 import logging
@@ -26,6 +27,26 @@ logger = logging.getLogger(__name__)
 logger.info("🚀 Starting Email Orchestrator API...")
 
 app = FastAPI(title="Email Orchestrator")
+
+# Configure CORS to allow requests from Vercel frontend and localhost
+# This is needed so the frontend can make API calls to the backend
+cors_origins = [
+    "https://smtp-sable.vercel.app",  # Production Vercel frontend
+    "https://smtp-85sf98lkj-ksmo12s-projects.vercel.app",  # Preview/staging Vercel
+    "http://localhost:3000",  # Local development
+    "http://localhost:5173",  # Vite dev server
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers to frontend
+)
+
+logger.info("✅ CORS configured for frontend domains")
 
 # Add middleware to log all requests
 @app.middleware("http")
