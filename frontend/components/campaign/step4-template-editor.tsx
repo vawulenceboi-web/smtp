@@ -97,14 +97,14 @@ export function Step4TemplateEditor() {
       console.log('📨 Sending campaign request:', { campaign_id: campaignId, recipients: targets.length });
 
       // Submit campaign to backend
-      const { data, error: apiError } = await apiPost('/api/campaigns', campaignRequest);
+      const { data: response, error: apiError } = await apiPost('/api/campaigns', campaignRequest);
 
       if (apiError) {
         console.error('❌ API Error:', apiError);
         throw new Error(apiError);
       }
 
-      const result = data;
+      const result = response;
       setSubmitStatus('success');
       setSubmitMessage(`Campaign successfully queued! ID: ${campaignId}`);
     } catch (err) {
