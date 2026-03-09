@@ -1,4 +1,9 @@
+import os
 import random
+import time
+import logging
+import httpx
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .celery_app import celery_app
@@ -11,23 +16,31 @@ from .providers import (
     RateLimitError,
 )
 from .proxy import ProxyConfig, ProxyRotationManager
-from .storage import set_recipient_status
+from .storage import set_recipient_status as legacy_set_recipient_status
 
+# Import the new synchronous provider router
+from .email.provider_router import build_provider_chain, send_with_failover
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Legacy Helpers
+# ---------------------------------------------------------------------------
 
 def _build_provider_config(raw: Dict[str, Any]) -> ProviderConfig:
     return ProviderConfig(
-        provider_type=ProviderType(raw["provider_type"]),
+        provider_type=ProviderType(raw.get("provider_type", "smtp")),
         api_key=raw.get("api_key"),
         domain=raw.get("domain"),
         base_url=raw.get("base_url"),
         smtp_host=raw.get("smtp_host"),
-        smtp_port=raw.get("smtp_port", 587),
+        smtp_port=int(raw.get("smtp_port", 587)),
         smtp_username=raw.get("smtp_username"),
         smtp_password=raw.get("smtp_password"),
         from_email=raw.get("from_email"),
         extra=raw.get("extra") or {},
     )
-
 
 def _build_proxy_config(raw: Optional[Dict[str, Any]]) -> ProxyConfig:
     if not raw:
@@ -37,6 +50,91 @@ def _build_proxy_config(raw: Optional[Dict[str, Any]]) -> ProxyConfig:
         rotate_after=raw.get("rotate_after", 10),
     )
 
+
+# ---------------------------------------------------------------------------
+# Supabase sync helpers (for worker execution)
+# ---------------------------------------------------------------------------
+
+def _supabase_headers() -> Dict[str, str]:
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+
+def _update_recipient_status(
+    campaign_id: str,
+    email: str,
+    status: str,
+    provider: str = "",
+) -> None:
+    base = os.getenv("SUPABASE_URL", "")
+    if not base:
+        logger.warning("SUPABASE_URL not set — skipping recipient update")
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    hdrs = _supabase_headers()
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            patch_resp = client.patch(
+                f"{base}/rest/v1/campaign_recipients"
+                f"?campaign_id=eq.{campaign_id}&email=eq.{email}",
+                json={"status": status, "provider": provider, "updated_at": now},
+                headers=hdrs,
+            )
+            needs_insert = (
+                patch_resp.status_code == 404
+                or patch_resp.headers.get("content-range", "").endswith("/0")
+                or patch_resp.text in ("", "[]")
+            )
+            if needs_insert:
+                client.post(
+                    f"{base}/rest/v1/campaign_recipients",
+                    json={
+                        "campaign_id": campaign_id,
+                        "email": email,
+                        "status": status,
+                        "provider": provider,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    headers={**hdrs, "Prefer": "return=minimal"},
+                )
+    except Exception as exc:
+        logger.warning(f"[supabase] Could not update recipient status: {exc}")
+
+def _update_campaign_counts(campaign_id: str, sent: int, failed: int) -> None:
+    base = os.getenv("SUPABASE_URL", "")
+    if not base:
+        return
+
+    total = sent + failed
+    status = "completed" if failed == 0 else ("failed" if sent == 0 else "completed")
+    now = datetime.now(timezone.utc).isoformat()
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            client.patch(
+                f"{base}/rest/v1/campaigns?id=eq.{campaign_id}",
+                json={
+                    "sent_count": sent,
+                    "failed_count": failed,
+                    "status": status,
+                    "updated_at": now,
+                },
+                headers=_supabase_headers(),
+            )
+    except Exception as exc:
+        logger.warning(f"[supabase] Could not update campaign counts: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Celery Tasks
+# ---------------------------------------------------------------------------
 
 @celery_app.task(name="app.tasks.send_single_email_task")
 def send_single_email_task(
@@ -49,6 +147,7 @@ def send_single_email_task(
 ):
     """
     Synchronous wrapper to call async provider.send_email from Celery.
+    Used for single immediate sends.
     """
     import asyncio
 
@@ -69,8 +168,14 @@ def send_single_email_task(
     asyncio.run(_run())
 
 
-@celery_app.task(name="app.tasks.process_campaign_batch")
+@celery_app.task(
+    name="app.tasks.process_campaign_batch",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
 def process_campaign_batch(
+    self,
     campaign_id: str,
     recipients: List[Dict[str, Any]],
     subject: str,
@@ -81,50 +186,55 @@ def process_campaign_batch(
 ):
     """
     Worker entry point to process a batch of recipients with slow-drip
-    timing and provider failover on hard bounces / spam blocks.
+    timing and priority provider failover logic.
     """
-    import asyncio
+    logger.info(f"[campaign:{campaign_id}] ▶ Starting — {len(recipients)} recipient(s)")
 
-    cfg = _build_provider_config(provider_config)
-    proxy_cfg = _build_proxy_config(proxy_config)
-    proxy_mgr = ProxyRotationManager(proxy_cfg)
-    provider = ProviderFactory.from_config(cfg, proxy_mgr)
+    # Build provider chain once per batch (shared across all recipients)
+    smtp_override = provider_config if provider_config.get("provider_type") == "smtp" else None
+    provider_chain = build_provider_chain(override_smtp=smtp_override)
 
-    # Optional explicit failover configs, supplied by frontend/backend caller.
-    # Format: provider_config.extra.fallback_provider_configs = [ {provider_type: "...", ...}, ...]
-    fallback_raw = (cfg.extra or {}).get("fallback_provider_configs") or []
-    fallback_cfgs = [_build_provider_config(raw) for raw in fallback_raw if isinstance(raw, dict)]
-    chain: List[ProviderConfig] = [cfg, *fallback_cfgs]
-    chain_index = 0
+    if not provider_chain:
+        logger.error(f"[campaign:{campaign_id}] No providers configured — aborting")
+        return {"campaign_id": campaign_id, "sent": 0, "failed": len(recipients), "error": "no_providers"}
 
-    async def _handle_batch():
-        nonlocal provider, cfg, chain_index
-        for recipient in recipients:
-            email = recipient["email"]
-            try:
-                await provider.send_email(
-                    to=[email],
-                    subject=subject,
-                    body=body,
-                    headers=headers,
-                    provider_config=cfg,
-                )
-                set_recipient_status(campaign_id, email, "sent", provider=cfg.provider_type.value)
-            except (HardBounceError, SpamBlockedError) as exc:
-                set_recipient_status(campaign_id, email, "failed", provider=cfg.provider_type.value)
-                if len(chain) > 1:
-                    chain_index = (chain_index + 1) % len(chain)
-                    cfg = chain[chain_index]
-                    provider = ProviderFactory.from_config(cfg, proxy_mgr)
-            except RateLimitError:
-                set_recipient_status(campaign_id, email, "delayed", provider=cfg.provider_type.value)
-            except Exception:
-                set_recipient_status(campaign_id, email, "error", provider=cfg.provider_type.value)
+    slow_drip = os.getenv("CELERY_SLOW_DRIP", "true").lower() == "true"
+    sent = 0
+    failed = 0
 
+    for idx, recipient in enumerate(recipients):
+        email = recipient.get("email", "")
+        if not email:
+            logger.warning(f"[campaign:{campaign_id}] Skipping recipient with no email: {recipient}")
+            failed += 1
+            continue
+
+        try:
+            used_provider, _ = send_with_failover(
+                to=email,
+                subject=subject,
+                body=body,
+                provider_chain=provider_chain,
+                campaign_id=campaign_id,
+            )
+            _update_recipient_status(campaign_id, email, "sent", provider=used_provider)
+            sent += 1
+        except Exception as exc:
+            logger.error(f"[campaign:{campaign_id}] ❌ All providers failed for {email}: {exc}")
+            _update_recipient_status(campaign_id, email, "failed", provider="none")
+            failed += 1
+
+        # Slow-drip wait between sends (skip after last recipient)
+        if slow_drip and idx < len(recipients) - 1:
             delay = random.randint(30, 180)
-            await asyncio.sleep(delay)
+            logger.info(f"[campaign:{campaign_id}] ⏳ Slow-drip: waiting {delay}s before next send…")
+            time.sleep(delay)
 
-    asyncio.run(_handle_batch())
+    # Write final campaign row counts
+    _update_campaign_counts(campaign_id, sent, failed)
+
+    logger.info(f"[campaign:{campaign_id}] ✔ Finished — sent:{sent}  failed:{failed}")
+    return {"campaign_id": campaign_id, "sent": sent, "failed": failed}
 
 
 def enqueue_campaign_batch(
@@ -151,4 +261,3 @@ def enqueue_campaign_batch(
             "proxy_config": proxy_config,
         },
     )
-
