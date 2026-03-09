@@ -4,11 +4,11 @@ backend/email/provider_router.py
 Provider Priority Router
 ========================
 Selects email providers in priority order:
-  1. SendGrid      (API - HTTPS 443)
-  2. Resend        (API - HTTPS 443)
-  3. Postmark      (API - HTTPS 443)
+  1. Resend        (API - HTTPS 443)
+  2. SendGrid      (API - HTTPS 443)
+  3. Mailgun       (API - HTTPS 443)
   4. Brevo         (API - HTTPS 443)
-  5. Mailgun       (API - HTTPS 443)
+  5. Postmark      (API - HTTPS 443)
   6. Zoho Mail API (API - HTTPS 443, optional)
   7. SMTP          (final fallback - may be blocked on port 587)
 
@@ -31,6 +31,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _env_first(*keys: str) -> str:
+    """Return the first non-empty environment variable value from keys."""
+    for key in keys:
+        val = os.getenv(key)
+        if val and val.strip():
+            return val.strip()
+    return ""
 
 # ---------------------------------------------------------------------------
 # Config dataclass (mirrors ProviderConfig but lives here for worker isolation)
@@ -62,84 +71,85 @@ def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[Ro
     """
     chain: List[RoutedProviderConfig] = []
 
-    # 1 — SendGrid
-    sg_key = os.getenv("PROVIDER_SENDGRID_API_KEY")
-    if sg_key:
-        chain.append(RoutedProviderConfig(
-            name="sendgrid-api",
-            provider_type="sendgrid",
-            api_key=sg_key,
-            from_email=os.getenv("PROVIDER_SENDGRID_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_SENDGRID_BASE_URL", "https://api.sendgrid.com/v3/mail/send"),
-        ))
-
-    # 2 — Resend
-    resend_key = os.getenv("PROVIDER_RESEND_API_KEY")
+    # 1 — Resend
+    resend_key = _env_first("PROVIDER_RESEND_API_KEY", "RESEND_API_KEY")
     if resend_key:
         chain.append(RoutedProviderConfig(
-            name="resend-api",
+            name="resend",
             provider_type="resend",
             api_key=resend_key,
-            from_email=os.getenv("PROVIDER_RESEND_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_RESEND_BASE_URL", "https://api.resend.com/emails"),
+            from_email=_env_first("PROVIDER_RESEND_FROM_EMAIL", "RESEND_FROM_EMAIL"),
+            base_url=_env_first("PROVIDER_RESEND_BASE_URL", "RESEND_BASE_URL") or "https://api.resend.com/emails",
         ))
 
-    # 3 — Postmark
-    pm_key = os.getenv("PROVIDER_POSTMARK_API_KEY")
-    if pm_key:
+    # 2 — SendGrid
+    sg_key = _env_first("PROVIDER_SENDGRID_API_KEY", "SENDGRID_API_KEY")
+    if sg_key:
         chain.append(RoutedProviderConfig(
-            name="postmark-api",
-            provider_type="postmark",
-            api_key=pm_key,
-            from_email=os.getenv("PROVIDER_POSTMARK_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_POSTMARK_BASE_URL", "https://api.postmarkapp.com/email"),
+            name="sendgrid",
+            provider_type="sendgrid",
+            api_key=sg_key,
+            from_email=_env_first("PROVIDER_SENDGRID_FROM_EMAIL", "SENDGRID_FROM_EMAIL"),
+            base_url=_env_first("PROVIDER_SENDGRID_BASE_URL", "SENDGRID_BASE_URL") or "https://api.sendgrid.com/v3/mail/send",
         ))
 
-    # 4 — Brevo
-    brevo_key = os.getenv("PROVIDER_BREVO_API_KEY")
-    if brevo_key:
-        chain.append(RoutedProviderConfig(
-            name="brevo-api",
-            provider_type="brevo",
-            api_key=brevo_key,
-            from_email=os.getenv("PROVIDER_BREVO_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_BREVO_BASE_URL", "https://api.brevo.com/v3/smtp/email"),
-        ))
-
-    # 5 — Mailgun
-    mg_key = os.getenv("PROVIDER_MAILGUN_API_KEY")
-    mg_domain = os.getenv("PROVIDER_MAILGUN_DOMAIN")
+    # 3 — Mailgun
+    mg_key = _env_first("PROVIDER_MAILGUN_API_KEY", "MAILGUN_API_KEY")
+    mg_domain = _env_first("PROVIDER_MAILGUN_DOMAIN", "MAILGUN_DOMAIN")
     if mg_key and mg_domain:
         chain.append(RoutedProviderConfig(
-            name="mailgun-api",
+            name="mailgun",
             provider_type="mailgun",
             api_key=mg_key,
             domain=mg_domain,
-            from_email=os.getenv("PROVIDER_MAILGUN_FROM_EMAIL", ""),
-            base_url=os.getenv(
-                "PROVIDER_MAILGUN_BASE_URL",
-                f"https://api.mailgun.net/v3/{mg_domain}/messages",
-            ),
+            from_email=_env_first("PROVIDER_MAILGUN_FROM_EMAIL", "MAILGUN_FROM_EMAIL"),
+            base_url=_env_first("PROVIDER_MAILGUN_BASE_URL", "MAILGUN_BASE_URL") or f"https://api.mailgun.net/v3/{mg_domain}/messages",
+        ))
+
+    # 4 — Brevo
+    brevo_key = _env_first("PROVIDER_BREVO_API_KEY", "BREVO_API_KEY")
+    if brevo_key:
+        chain.append(RoutedProviderConfig(
+            name="brevo",
+            provider_type="brevo",
+            api_key=brevo_key,
+            from_email=_env_first("PROVIDER_BREVO_FROM_EMAIL", "BREVO_FROM_EMAIL"),
+            base_url=_env_first("PROVIDER_BREVO_BASE_URL", "BREVO_BASE_URL") or "https://api.brevo.com/v3/smtp/email",
+        ))
+
+    # 5 — Postmark
+    pm_key = _env_first("PROVIDER_POSTMARK_API_KEY", "POSTMARK_API_KEY")
+    if pm_key:
+        chain.append(RoutedProviderConfig(
+            name="postmark",
+            provider_type="postmark",
+            api_key=pm_key,
+            from_email=_env_first("PROVIDER_POSTMARK_FROM_EMAIL", "POSTMARK_FROM_EMAIL"),
+            base_url=_env_first("PROVIDER_POSTMARK_BASE_URL", "POSTMARK_BASE_URL") or "https://api.postmarkapp.com/email",
         ))
 
     # 6 — Zoho API (only if API key is configured — not SMTP mode)
-    zoho_api_key = os.getenv("PROVIDER_ZOHO_API_KEY")
-    zoho_account_id = os.getenv("PROVIDER_ZOHO_ACCOUNT_ID")
+    zoho_api_key = _env_first("PROVIDER_ZOHO_API_KEY", "ZOHO_API_KEY")
+    zoho_account_id = _env_first("PROVIDER_ZOHO_ACCOUNT_ID", "ZOHO_ACCOUNT_ID")
     if zoho_api_key and zoho_account_id:
         chain.append(RoutedProviderConfig(
             name="zoho-api",
             provider_type="zoho-api",
             api_key=zoho_api_key,
-            from_email=os.getenv("PROVIDER_ZOHO_FROM_EMAIL", ""),
+            from_email=_env_first("PROVIDER_ZOHO_FROM_EMAIL", "ZOHO_FROM_EMAIL"),
             base_url=f"https://mail.zoho.com/api/accounts/{zoho_account_id}/messages",
         ))
 
     # 7 — SMTP from env (e.g. Zoho SMTP, custom SMTP relay)
-    smtp_host_env = os.getenv("PROVIDER_ZOHO_HOST") or os.getenv("SMTP_HOST")
-    smtp_user_env = os.getenv("PROVIDER_ZOHO_USERNAME") or os.getenv("SMTP_USERNAME")
-    smtp_pass_env = os.getenv("PROVIDER_ZOHO_PASSWORD") or os.getenv("SMTP_PASSWORD")
-    smtp_from_env = os.getenv("PROVIDER_ZOHO_FROM_EMAIL") or os.getenv("SMTP_FROM_EMAIL")
-    smtp_port_env = int(os.getenv("PROVIDER_ZOHO_PORT") or os.getenv("SMTP_PORT") or "587")
+    smtp_host_env = _env_first("SMTP_HOST", "PROVIDER_ZOHO_HOST")
+    smtp_user_env = _env_first("SMTP_USERNAME", "PROVIDER_ZOHO_USERNAME")
+    smtp_pass_env = _env_first("SMTP_PASSWORD", "PROVIDER_ZOHO_PASSWORD")
+    smtp_from_env = _env_first("SMTP_FROM_EMAIL", "PROVIDER_ZOHO_FROM_EMAIL")
+    smtp_port_raw = _env_first("SMTP_PORT", "PROVIDER_ZOHO_PORT") or "587"
+    try:
+        smtp_port_env = int(smtp_port_raw)
+    except ValueError:
+        smtp_port_env = 587
 
     if smtp_host_env and smtp_user_env and smtp_pass_env:
         chain.append(RoutedProviderConfig(
@@ -157,13 +167,7 @@ def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[Ro
 
 
 def _chain_label(cfg: RoutedProviderConfig) -> str:
-    if cfg.provider_type == "smtp":
-        return "smtp"
-    if cfg.name.endswith("-api"):
-        return cfg.name
-    if cfg.provider_type.endswith("-api"):
-        return cfg.provider_type
-    return f"{cfg.provider_type}-api"
+    return cfg.provider_type or cfg.name
 
 
 def _log_provider_chain(chain: List[RoutedProviderConfig]) -> None:
@@ -431,13 +435,12 @@ def _routed_from_payload(cfg: Dict[str, Any]) -> RoutedProviderConfig:
     # API provider from payload
     if api_key and base_url:
         # Map high-level provider_type to internal routed type
-        if provider_type_raw == "zoho":
+        if provider_type_raw in {"zoho", "zoho-api"}:
             routed_type = "zoho-api"
             name = "zoho-api"
         else:
             routed_type = provider_type_raw or "api"
-            # add -api suffix for clarity in logs (zoho-api, mailgun-api, etc.)
-            name = f"{routed_type}-api" if not routed_type.endswith("-api") else routed_type
+            name = routed_type
 
         return RoutedProviderConfig(
             name=name,
@@ -488,9 +491,9 @@ def build_provider_chain_from_payload(
 
     def _key(c: RoutedProviderConfig) -> Tuple[str, str]:
         # Uniqueness key: (provider_type, identifier)
-        ident = ""
         if c.provider_type == "smtp":
-            ident = f"{c.smtp_host}:{c.smtp_port}:{c.smtp_username}"
+            # Keep a single SMTP fallback slot at the end of the chain.
+            ident = "smtp"
         else:
             ident = c.base_url or c.domain or c.name
         return (c.provider_type, ident or c.name)
