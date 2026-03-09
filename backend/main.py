@@ -48,18 +48,18 @@ if CONFIGURED_PROVIDERS:
 else:
     logger.warning("⚠️  No email providers configured! Set PROVIDER_* environment variables.")
 
-# Configure CORS to allow requests from Vercel frontend and localhost
-# This is needed so the frontend can make API calls to the backend
-cors_origins = [
-    "https://smtp-sable.vercel.app",  # Production Vercel frontend
-    "https://smtp-85sf98lkj-ksmo12s-projects.vercel.app",  # Preview/staging Vercel
-    "http://localhost:3000",  # Local development
-    "http://localhost:5173",  # Vite dev server
-]
+# Configure CORS to allow requests from Vercel frontend and localhost.
+# Using allow_origin_regex so all Vercel preview URLs are accepted automatically
+# without needing to whitelist each deployment individually.
+CORS_ORIGIN_REGEX = (
+    r"https://smtp.*\.vercel\.app"          # Any smtp-* Vercel deployment
+    r"|http://localhost:\d+"                 # Any localhost port
+    r"|http://127\.0\.0\.1:\d+"             # Any 127.0.0.1 port
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
     allow_headers=["*"],  # Allow all headers
