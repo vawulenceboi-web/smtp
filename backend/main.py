@@ -14,6 +14,18 @@ from .storage import get_campaign_status, register_campaign, list_campaigns
 from .api import relays, templates, settings, admins, notifications
 from .config import CONFIGURED_PROVIDERS
 from datetime import datetime
+import uuid
+import hashlib
+
+def ensure_uuid(val: str) -> str:
+    """Ensure a string is a valid UUID, otherwise hash it deterministically to a UUID format."""
+    try:
+        uuid.UUID(str(val))
+        return val
+    except ValueError:
+        m = hashlib.md5()
+        m.update(str(val).encode('utf-8'))
+        return str(uuid.UUID(bytes=m.digest()))
 
 # Setup logging to stdout for Railway/production environments
 logging.basicConfig(
@@ -142,6 +154,8 @@ async def enqueue_campaign(payload: CampaignRequest):
     Enqueue a batch campaign to be processed by Celery
     with slow-drip and provider failover.
     """
+    payload.campaign_id = ensure_uuid(payload.campaign_id)
+
     logger.info(f"📨 Campaign enqueue request: campaign_id={payload.campaign_id}")
     logger.info(f"   Recipients: {len(payload.recipients)}, Subject: {payload.subject[:50]}")
     logger.info(f"   Provider: {payload.provider_config.provider_type}")
@@ -209,6 +223,8 @@ async def post_campaign(payload: CampaignRequest):
     Alias for campaign enqueue - allows POST to /api/campaigns directly
     (frontend convenience - redirects to /api/campaigns/enqueue logic)
     """
+    payload.campaign_id = ensure_uuid(payload.campaign_id)
+
     logger.info(f"📨 POST /api/campaigns endpoint called (alias for enqueue)")
     logger.info(f"   Campaign ID: {payload.campaign_id}")
     logger.info(f"   Recipients: {len(payload.recipients)}")
@@ -260,7 +276,7 @@ async def post_campaign(payload: CampaignRequest):
 
 @app.get("/api/campaigns/{campaign_id}/status")
 async def campaign_status(campaign_id: str):
-    return await get_campaign_status(campaign_id)
+    return await get_campaign_status(ensure_uuid(campaign_id))
 
 
 # Register API routers with /api prefix
