@@ -62,8 +62,8 @@ export function Step4TemplateEditor() {
         use_tls: relayConfig.useTLS,
       });
 
-      // Generate a campaign ID
-      const campaignId = `campaign_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Generate a campaign ID (must be a valid UUID for PostgreSQL)
+      const campaignId = crypto.randomUUID();
 
       // Prepare campaign request
       const campaignRequest = {
