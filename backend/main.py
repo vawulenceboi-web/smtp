@@ -162,7 +162,7 @@ async def enqueue_campaign(payload: CampaignRequest):
 
     # record campaign metadata for listing
     logger.info(f"   Registering campaign {payload.campaign_id}")
-    register_campaign(
+    await register_campaign(
         payload.campaign_id,
         {
             "name": payload.subject,
@@ -234,7 +234,7 @@ async def post_campaign(payload: CampaignRequest):
 
     # record campaign metadata for listing
     logger.info(f"   Registering campaign {payload.campaign_id}")
-    register_campaign(
+    await register_campaign(
         payload.campaign_id,
         {
             "name": payload.subject,
