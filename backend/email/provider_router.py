@@ -4,13 +4,13 @@ backend/email/provider_router.py
 Provider Priority Router
 ========================
 Selects email providers in priority order:
-  1. Resend        (API - HTTPS 443)
-  2. SendGrid      (API - HTTPS 443)
-  3. Brevo         (API - HTTPS 443)
-  4. Mailgun       (API - HTTPS 443)
-  5. Postmark      (API - HTTPS 443)
-  6. Zoho Mail API (API - HTTPS 443, if PROVIDER_ZOHO_API_KEY is set)
-  7. SMTP          (fallback - may be blocked on port 587)
+  1. SendGrid      (API - HTTPS 443)
+  2. Resend        (API - HTTPS 443)
+  3. Postmark      (API - HTTPS 443)
+  4. Brevo         (API - HTTPS 443)
+  5. Mailgun       (API - HTTPS 443)
+  6. Zoho Mail API (API - HTTPS 443, optional)
+  7. SMTP          (final fallback - may be blocked on port 587)
 
 For each recipient the router walks the chain until one succeeds.
 All provider credentials are read from environment variables.
@@ -58,50 +58,60 @@ class RoutedProviderConfig:
 def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[RoutedProviderConfig]:
     """
     Build a priority-ordered list of configured providers by reading env vars.
-    `override_smtp` may supply SMTP credentials from the campaign payload as a
-    last-resort fallback even if no env-var SMTP is configured.
+    API providers are prioritized before SMTP fallback.
     """
     chain: List[RoutedProviderConfig] = []
 
-    # 1 — Resend
-    resend_key = os.getenv("PROVIDER_RESEND_API_KEY")
-    if resend_key:
-        chain.append(RoutedProviderConfig(
-            name="resend",
-            provider_type="resend",
-            api_key=resend_key,
-            from_email=os.getenv("PROVIDER_RESEND_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_RESEND_BASE_URL", "https://api.resend.com/emails"),
-        ))
-
-    # 2 — SendGrid
+    # 1 — SendGrid
     sg_key = os.getenv("PROVIDER_SENDGRID_API_KEY")
     if sg_key:
         chain.append(RoutedProviderConfig(
-            name="sendgrid",
+            name="sendgrid-api",
             provider_type="sendgrid",
             api_key=sg_key,
             from_email=os.getenv("PROVIDER_SENDGRID_FROM_EMAIL", ""),
             base_url=os.getenv("PROVIDER_SENDGRID_BASE_URL", "https://api.sendgrid.com/v3/mail/send"),
         ))
 
-    # 3 — Brevo
+    # 2 — Resend
+    resend_key = os.getenv("PROVIDER_RESEND_API_KEY")
+    if resend_key:
+        chain.append(RoutedProviderConfig(
+            name="resend-api",
+            provider_type="resend",
+            api_key=resend_key,
+            from_email=os.getenv("PROVIDER_RESEND_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_RESEND_BASE_URL", "https://api.resend.com/emails"),
+        ))
+
+    # 3 — Postmark
+    pm_key = os.getenv("PROVIDER_POSTMARK_API_KEY")
+    if pm_key:
+        chain.append(RoutedProviderConfig(
+            name="postmark-api",
+            provider_type="postmark",
+            api_key=pm_key,
+            from_email=os.getenv("PROVIDER_POSTMARK_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_POSTMARK_BASE_URL", "https://api.postmarkapp.com/email"),
+        ))
+
+    # 4 — Brevo
     brevo_key = os.getenv("PROVIDER_BREVO_API_KEY")
     if brevo_key:
         chain.append(RoutedProviderConfig(
-            name="brevo",
+            name="brevo-api",
             provider_type="brevo",
             api_key=brevo_key,
             from_email=os.getenv("PROVIDER_BREVO_FROM_EMAIL", ""),
             base_url=os.getenv("PROVIDER_BREVO_BASE_URL", "https://api.brevo.com/v3/smtp/email"),
         ))
 
-    # 4 — Mailgun
+    # 5 — Mailgun
     mg_key = os.getenv("PROVIDER_MAILGUN_API_KEY")
     mg_domain = os.getenv("PROVIDER_MAILGUN_DOMAIN")
     if mg_key and mg_domain:
         chain.append(RoutedProviderConfig(
-            name="mailgun",
+            name="mailgun-api",
             provider_type="mailgun",
             api_key=mg_key,
             domain=mg_domain,
@@ -110,17 +120,6 @@ def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[Ro
                 "PROVIDER_MAILGUN_BASE_URL",
                 f"https://api.mailgun.net/v3/{mg_domain}/messages",
             ),
-        ))
-
-    # 5 — Postmark
-    pm_key = os.getenv("PROVIDER_POSTMARK_API_KEY")
-    if pm_key:
-        chain.append(RoutedProviderConfig(
-            name="postmark",
-            provider_type="postmark",
-            api_key=pm_key,
-            from_email=os.getenv("PROVIDER_POSTMARK_FROM_EMAIL", ""),
-            base_url=os.getenv("PROVIDER_POSTMARK_BASE_URL", "https://api.postmarkapp.com/email"),
         ))
 
     # 6 — Zoho API (only if API key is configured — not SMTP mode)
@@ -144,7 +143,7 @@ def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[Ro
 
     if smtp_host_env and smtp_user_env and smtp_pass_env:
         chain.append(RoutedProviderConfig(
-            name="smtp-env",
+            name="smtp",
             provider_type="smtp",
             smtp_host=smtp_host_env,
             smtp_port=smtp_port_env,
@@ -155,6 +154,21 @@ def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[Ro
         ))
 
     return chain
+
+
+def _chain_label(cfg: RoutedProviderConfig) -> str:
+    if cfg.provider_type == "smtp":
+        return "smtp"
+    if cfg.name.endswith("-api"):
+        return cfg.name
+    if cfg.provider_type.endswith("-api"):
+        return cfg.provider_type
+    return f"{cfg.provider_type}-api"
+
+
+def _log_provider_chain(chain: List[RoutedProviderConfig]) -> None:
+    labels = [_chain_label(c) for c in chain]
+    logger.info(f"[router] Provider chain ({len(labels)}): {' -> '.join(labels)}")
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +387,7 @@ def build_provider_chain(override_smtp: Optional[Dict[str, Any]] = None) -> List
     # Legacy behaviour: allow SMTP from payload as last fallback when explicitly passed.
     if override_smtp:
         smtp_cfg = RoutedProviderConfig(
-            name="smtp-payload",
+            name="smtp",
             provider_type="smtp",
             smtp_host=override_smtp.get("smtp_host", ""),
             smtp_port=int(override_smtp.get("smtp_port", 587)),
@@ -397,8 +411,7 @@ def build_provider_chain(override_smtp: Optional[Dict[str, Any]] = None) -> List
             "Set env vars like PROVIDER_RESEND_API_KEY, PROVIDER_SENDGRID_API_KEY, etc."
         )
     else:
-        names = [c.name for c in chain]
-        logger.info(f"Provider chain: {' → '.join(names)}")
+        _log_provider_chain(chain)
     return chain
 
 
@@ -440,7 +453,7 @@ def _routed_from_payload(cfg: Dict[str, Any]) -> RoutedProviderConfig:
     smtp_host = cfg.get("smtp_host")
     if smtp_host:
         return RoutedProviderConfig(
-            name="smtp-payload",
+            name="smtp",
             provider_type="smtp",
             smtp_host=smtp_host,
             smtp_port=int(cfg.get("smtp_port", 587)),
@@ -460,17 +473,17 @@ def build_provider_chain_from_payload(
 ) -> List[RoutedProviderConfig]:
     """
     Build provider chain using:
-      1. API provider from payload (if any)
-      2. Fallback API providers from payload.extra.fallback_provider_configs (if any)
-      3. Environment API providers (from _detect_providers)
-      4. SMTP from payload as final fallback (if configured)
+      1. Environment API providers (priority order from _detect_providers)
+      2. Payload API providers (primary + fallback_provider_configs)
+      3. SMTP providers only as final fallback (env SMTP, then payload SMTP)
 
     Ensures:
       - API providers are always tried before SMTP.
       - Duplicate providers (same provider_type + base_url / smtp_host) are removed.
     """
     env_chain = _detect_providers()
-    chain: List[RoutedProviderConfig] = []
+    api_chain: List[RoutedProviderConfig] = []
+    smtp_chain: List[RoutedProviderConfig] = []
     seen_keys: set[Tuple[str, str]] = set()
 
     def _key(c: RoutedProviderConfig) -> Tuple[str, str]:
@@ -482,22 +495,33 @@ def build_provider_chain_from_payload(
             ident = c.base_url or c.domain or c.name
         return (c.provider_type, ident or c.name)
 
-    # 1) Primary provider from payload
-    primary_is_smtp = False
+    def _add(cfg: RoutedProviderConfig) -> bool:
+        k = _key(cfg)
+        if k in seen_keys:
+            return False
+        seen_keys.add(k)
+        if cfg.provider_type == "smtp":
+            smtp_chain.append(cfg)
+        else:
+            api_chain.append(cfg)
+        return True
+
+    # 1) Environment-configured providers (API first in _detect_providers, SMTP last)
+    for cfg in env_chain:
+        _add(cfg)
+
+    # 2) Primary provider from payload (if it is API, append after env APIs)
+    payload_primary: Optional[RoutedProviderConfig] = None
     if provider_payload:
         try:
-            primary = _routed_from_payload(provider_payload)
-            primary_is_smtp = primary.provider_type == "smtp"
-            if not primary_is_smtp:  # only prepend API primary; SMTP will be handled as fallback
-                k = _key(primary)
-                if k not in seen_keys:
-                    chain.append(primary)
-                    seen_keys.add(k)
-                    logger.info(f"[router] Primary provider from payload: {primary.name}")
+            payload_primary = _routed_from_payload(provider_payload)
+            if payload_primary.provider_type != "smtp":
+                if _add(payload_primary):
+                    logger.info(f"[router] Added payload API provider: {payload_primary.name}")
         except ValueError as exc:
             logger.error(f"[router] Invalid provider payload: {exc}")
 
-    # 2) Fallback API providers from payload.extra.fallback_provider_configs (if any)
+    # 3) Fallback API providers from payload.extra.fallback_provider_configs (if any)
     if provider_payload:
         extra = provider_payload.get("extra") or {}
         fallbacks = extra.get("fallback_provider_configs") or []
@@ -510,36 +534,16 @@ def build_provider_chain_from_payload(
                 except ValueError:
                     continue
                 if fb_cfg.provider_type == "smtp":
-                    # SMTP fallbacks handled later
                     continue
-                k = _key(fb_cfg)
-                if k not in seen_keys:
-                    chain.append(fb_cfg)
-                    seen_keys.add(k)
-                    logger.info(f"[router] Added fallback API provider from payload: {fb_cfg.name}")
-
-    # 3) Environment-configured providers (API + SMTP)
-    for c in env_chain:
-        k = _key(c)
-        if k in seen_keys:
-            continue
-        # API providers naturally come before SMTP within env_chain
-        chain.append(c)
-        seen_keys.add(k)
+                if _add(fb_cfg):
+                    logger.info(f"[router] Added payload fallback API provider: {fb_cfg.name}")
 
     # 4) SMTP from payload as absolute final fallback (if configured and not already present)
-    if provider_payload:
-        try:
-            maybe_smtp = _routed_from_payload(provider_payload)
-            if maybe_smtp.provider_type == "smtp":
-                k = _key(maybe_smtp)
-                if k not in seen_keys:
-                    chain.append(maybe_smtp)
-                    seen_keys.add(k)
-                    logger.info("[router] Added SMTP payload as final fallback")
-        except ValueError:
-            # already logged / ignored
-            pass
+    if payload_primary and payload_primary.provider_type == "smtp":
+        if _add(payload_primary):
+            logger.info("[router] Added payload SMTP as final fallback")
+
+    chain = api_chain + smtp_chain
 
     if not chain:
         logger.error(
@@ -547,7 +551,6 @@ def build_provider_chain_from_payload(
             "Expected at least one API provider (api_key+base_url) or SMTP (smtp_host)."
         )
     else:
-        names = [c.name for c in chain]
-        logger.info(f"Provider chain: {' -> '.join(names)}")
+        _log_provider_chain(chain)
 
     return chain

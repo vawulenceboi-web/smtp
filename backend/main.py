@@ -143,7 +143,9 @@ class CampaignRequest(BaseModel):
     subject: str
     body: str
     headers: Dict[str, Any] = Field(default_factory=dict)
-    provider_config: ProviderConfig
+    # Keep campaign provider payload flexible so router can auto-build chain
+    # from environment APIs without requiring a forced provider_type.
+    provider_config: Dict[str, Any] = Field(default_factory=dict)
     proxy_config: Optional[ProxyConfig] = None
     sender_ip: Optional[str] = None
 
@@ -158,7 +160,7 @@ async def enqueue_campaign(payload: CampaignRequest):
 
     logger.info(f"📨 Campaign enqueue request: campaign_id={payload.campaign_id}")
     logger.info(f"   Recipients: {len(payload.recipients)}, Subject: {payload.subject[:50]}")
-    logger.info(f"   Provider: {payload.provider_config.provider_type}")
+    logger.info(f"   Provider payload type: {payload.provider_config.get('provider_type', 'auto')}")
     
     # Optional IP reputation check before large batch
     if payload.sender_ip:
@@ -193,7 +195,7 @@ async def enqueue_campaign(payload: CampaignRequest):
         subject=payload.subject,
         body=payload.body,
         headers=payload.headers,
-        provider_config=payload.provider_config.to_dict(),
+        provider_config=payload.provider_config,
         proxy_config=payload.proxy_config.to_dict() if payload.proxy_config else None,
     )
     logger.info(f"✅ Campaign {payload.campaign_id} queued successfully")
@@ -232,7 +234,7 @@ async def post_campaign(payload: CampaignRequest):
     # Identical logic to /api/campaigns/enqueue
     logger.info(f"📨 Campaign enqueue request: campaign_id={payload.campaign_id}")
     logger.info(f"   Recipients: {len(payload.recipients)}, Subject: {payload.subject[:50]}")
-    logger.info(f"   Provider: {payload.provider_config.provider_type}")
+    logger.info(f"   Provider payload type: {payload.provider_config.get('provider_type', 'auto')}")
     
     # Optional IP reputation check before large batch
     if payload.sender_ip:
@@ -267,7 +269,7 @@ async def post_campaign(payload: CampaignRequest):
         subject=payload.subject,
         body=payload.body,
         headers=payload.headers,
-        provider_config=payload.provider_config.to_dict(),
+        provider_config=payload.provider_config,
         proxy_config=payload.proxy_config.to_dict() if payload.proxy_config else None,
     )
     logger.info(f"✅ Campaign {payload.campaign_id} queued successfully")
@@ -285,4 +287,3 @@ app.include_router(templates.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(admins.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
-
