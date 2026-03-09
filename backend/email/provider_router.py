@@ -1,0 +1,390 @@
+"""
+backend/email/provider_router.py
+
+Provider Priority Router
+========================
+Selects email providers in priority order:
+  1. Resend        (API - HTTPS 443)
+  2. SendGrid      (API - HTTPS 443)
+  3. Brevo         (API - HTTPS 443)
+  4. Mailgun       (API - HTTPS 443)
+  5. Postmark      (API - HTTPS 443)
+  6. Zoho Mail API (API - HTTPS 443, if PROVIDER_ZOHO_API_KEY is set)
+  7. SMTP          (fallback - may be blocked on port 587)
+
+For each recipient the router walks the chain until one succeeds.
+All provider credentials are read from environment variables.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import smtplib
+import socket
+import time
+from dataclasses import dataclass, field
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Config dataclass (mirrors ProviderConfig but lives here for worker isolation)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RoutedProviderConfig:
+    name: str                              # human-readable label for logs
+    provider_type: str                     # "resend" | "sendgrid" | … | "smtp"
+    api_key: Optional[str] = None
+    from_email: Optional[str] = None
+    domain: Optional[str] = None
+    base_url: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Provider detection from environment variables
+# ---------------------------------------------------------------------------
+
+def _detect_providers(override_smtp: Optional[Dict[str, Any]] = None) -> List[RoutedProviderConfig]:
+    """
+    Build a priority-ordered list of configured providers by reading env vars.
+    `override_smtp` may supply SMTP credentials from the campaign payload as a
+    last-resort fallback even if no env-var SMTP is configured.
+    """
+    chain: List[RoutedProviderConfig] = []
+
+    # 1 — Resend
+    resend_key = os.getenv("PROVIDER_RESEND_API_KEY")
+    if resend_key:
+        chain.append(RoutedProviderConfig(
+            name="resend",
+            provider_type="resend",
+            api_key=resend_key,
+            from_email=os.getenv("PROVIDER_RESEND_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_RESEND_BASE_URL", "https://api.resend.com/emails"),
+        ))
+
+    # 2 — SendGrid
+    sg_key = os.getenv("PROVIDER_SENDGRID_API_KEY")
+    if sg_key:
+        chain.append(RoutedProviderConfig(
+            name="sendgrid",
+            provider_type="sendgrid",
+            api_key=sg_key,
+            from_email=os.getenv("PROVIDER_SENDGRID_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_SENDGRID_BASE_URL", "https://api.sendgrid.com/v3/mail/send"),
+        ))
+
+    # 3 — Brevo
+    brevo_key = os.getenv("PROVIDER_BREVO_API_KEY")
+    if brevo_key:
+        chain.append(RoutedProviderConfig(
+            name="brevo",
+            provider_type="brevo",
+            api_key=brevo_key,
+            from_email=os.getenv("PROVIDER_BREVO_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_BREVO_BASE_URL", "https://api.brevo.com/v3/smtp/email"),
+        ))
+
+    # 4 — Mailgun
+    mg_key = os.getenv("PROVIDER_MAILGUN_API_KEY")
+    mg_domain = os.getenv("PROVIDER_MAILGUN_DOMAIN")
+    if mg_key and mg_domain:
+        chain.append(RoutedProviderConfig(
+            name="mailgun",
+            provider_type="mailgun",
+            api_key=mg_key,
+            domain=mg_domain,
+            from_email=os.getenv("PROVIDER_MAILGUN_FROM_EMAIL", ""),
+            base_url=os.getenv(
+                "PROVIDER_MAILGUN_BASE_URL",
+                f"https://api.mailgun.net/v3/{mg_domain}/messages",
+            ),
+        ))
+
+    # 5 — Postmark
+    pm_key = os.getenv("PROVIDER_POSTMARK_API_KEY")
+    if pm_key:
+        chain.append(RoutedProviderConfig(
+            name="postmark",
+            provider_type="postmark",
+            api_key=pm_key,
+            from_email=os.getenv("PROVIDER_POSTMARK_FROM_EMAIL", ""),
+            base_url=os.getenv("PROVIDER_POSTMARK_BASE_URL", "https://api.postmarkapp.com/email"),
+        ))
+
+    # 6 — Zoho API (only if API key is configured — not SMTP mode)
+    zoho_api_key = os.getenv("PROVIDER_ZOHO_API_KEY")
+    zoho_account_id = os.getenv("PROVIDER_ZOHO_ACCOUNT_ID")
+    if zoho_api_key and zoho_account_id:
+        chain.append(RoutedProviderConfig(
+            name="zoho-api",
+            provider_type="zoho-api",
+            api_key=zoho_api_key,
+            from_email=os.getenv("PROVIDER_ZOHO_FROM_EMAIL", ""),
+            base_url=f"https://mail.zoho.com/api/accounts/{zoho_account_id}/messages",
+        ))
+
+    # 7 — SMTP from env (e.g. Zoho SMTP, custom SMTP relay)
+    smtp_host_env = os.getenv("PROVIDER_ZOHO_HOST") or os.getenv("SMTP_HOST")
+    smtp_user_env = os.getenv("PROVIDER_ZOHO_USERNAME") or os.getenv("SMTP_USERNAME")
+    smtp_pass_env = os.getenv("PROVIDER_ZOHO_PASSWORD") or os.getenv("SMTP_PASSWORD")
+    smtp_from_env = os.getenv("PROVIDER_ZOHO_FROM_EMAIL") or os.getenv("SMTP_FROM_EMAIL")
+    smtp_port_env = int(os.getenv("PROVIDER_ZOHO_PORT") or os.getenv("SMTP_PORT") or "587")
+
+    if smtp_host_env and smtp_user_env and smtp_pass_env:
+        chain.append(RoutedProviderConfig(
+            name="smtp-env",
+            provider_type="smtp",
+            smtp_host=smtp_host_env,
+            smtp_port=smtp_port_env,
+            smtp_username=smtp_user_env,
+            smtp_password=smtp_pass_env,
+            from_email=smtp_from_env or smtp_user_env,
+            extra={"use_tls": True},
+        ))
+
+    # 8 — SMTP from campaign payload (absolute final fallback)
+    if override_smtp:
+        chain.append(RoutedProviderConfig(
+            name="smtp-payload",
+            provider_type="smtp",
+            smtp_host=override_smtp.get("smtp_host", ""),
+            smtp_port=int(override_smtp.get("smtp_port", 587)),
+            smtp_username=override_smtp.get("smtp_username", ""),
+            smtp_password=override_smtp.get("smtp_password", ""),
+            from_email=override_smtp.get("from_email", ""),
+            extra=override_smtp.get("extra") or {},
+        ))
+
+    return chain
+
+
+# ---------------------------------------------------------------------------
+# Provider send implementations (sync, for Celery workers)
+# ---------------------------------------------------------------------------
+
+def _send_via_resend(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {cfg.api_key}",
+            "Content-Type": "application/json",
+        },
+        json={"from": cfg.from_email, "to": [to], "subject": subject, "html": body},
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Resend {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_sendgrid(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or "https://api.sendgrid.com/v3/mail/send",
+        headers={
+            "Authorization": f"Bearer {cfg.api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "personalizations": [{"to": [{"email": to}]}],
+            "from": {"email": cfg.from_email},
+            "subject": subject,
+            "content": [{"type": "text/html", "value": body}],
+        },
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"SendGrid {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_brevo(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": cfg.api_key or "", "Content-Type": "application/json"},
+        json={
+            "sender": {"email": cfg.from_email},
+            "to": [{"email": to}],
+            "subject": subject,
+            "htmlContent": body,
+        },
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Brevo {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_mailgun(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or f"https://api.mailgun.net/v3/{cfg.domain}/messages",
+        auth=("api", cfg.api_key or ""),
+        data={"from": cfg.from_email, "to": [to], "subject": subject, "html": body},
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Mailgun {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_postmark(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or "https://api.postmarkapp.com/email",
+        headers={
+            "X-Postmark-Server-Token": cfg.api_key or "",
+            "Content-Type": "application/json",
+        },
+        json={
+            "From": cfg.from_email,
+            "To": to,
+            "Subject": subject,
+            "HtmlBody": body,
+        },
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Postmark {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    resp = httpx.post(
+        cfg.base_url or "",
+        headers={
+            "Authorization": f"Zoho-oauthtoken {cfg.api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "fromAddress": cfg.from_email,
+            "toAddress": to,
+            "subject": subject,
+            "content": body,
+            "mailFormat": "html",
+        },
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Zoho API {resp.status_code}: {resp.text[:200]}")
+
+
+def _send_via_smtp(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    """
+    Synchronous SMTP send with short connection timeout so port-blocked
+    connections fail fast and fall back to the next API provider.
+    """
+    CONNECT_TIMEOUT = int(os.getenv("SMTP_CONNECT_TIMEOUT", "8"))  # seconds
+
+    mime_type = "html" if body.strip().startswith("<") else "plain"
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = cfg.from_email or cfg.smtp_username or ""
+    msg["To"] = to
+    msg.attach(MIMEText(body, mime_type))
+
+    use_tls = cfg.extra.get("use_tls", True)
+
+    try:
+        if use_tls:
+            server = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=CONNECT_TIMEOUT)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+        else:
+            server = smtplib.SMTP_SSL(cfg.smtp_host, cfg.smtp_port, timeout=CONNECT_TIMEOUT)
+
+        server.login(cfg.smtp_username, cfg.smtp_password)
+        server.sendmail(cfg.from_email or cfg.smtp_username, [to], msg.as_string())
+        server.quit()
+
+    except (socket.timeout, TimeoutError, OSError) as exc:
+        raise RuntimeError(
+            f"SMTP connection to {cfg.smtp_host}:{cfg.smtp_port} timed out "
+            f"(timeout={CONNECT_TIMEOUT}s) — port may be blocked: {exc}"
+        ) from exc
+    except smtplib.SMTPException as exc:
+        raise RuntimeError(f"SMTP error: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table
+# ---------------------------------------------------------------------------
+
+_SEND_FUNC = {
+    "resend":    _send_via_resend,
+    "sendgrid":  _send_via_sendgrid,
+    "brevo":     _send_via_brevo,
+    "mailgun":   _send_via_mailgun,
+    "postmark":  _send_via_postmark,
+    "zoho-api":  _send_via_zoho_api,
+    "smtp":      _send_via_smtp,
+}
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def send_with_failover(
+    to: str,
+    subject: str,
+    body: str,
+    provider_chain: List[RoutedProviderConfig],
+    campaign_id: str = "",
+) -> Tuple[str, str]:
+    """
+    Try each provider in `provider_chain` in order. Returns (provider_name, "sent") on
+    success, or raises after all providers are exhausted.
+
+    Returns:
+        (provider_name, status)
+    """
+    last_exc: Optional[Exception] = None
+
+    for cfg in provider_chain:
+        send_fn = _SEND_FUNC.get(cfg.provider_type)
+        if send_fn is None:
+            logger.warning(f"[provider:{cfg.name}] Unknown provider type '{cfg.provider_type}' — skipping")
+            continue
+
+        logger.info(f"[provider:{cfg.name}] Sending to {to}" + (f" (campaign:{campaign_id})" if campaign_id else ""))
+        try:
+            send_fn(cfg, to, subject, body)
+            logger.info(f"[provider:{cfg.name}] ✅ Sent to {to}")
+            return cfg.name, "sent"
+        except Exception as exc:
+            last_exc = exc
+            # Find next provider name for logging
+            cur_idx = provider_chain.index(cfg)
+            next_cfg = provider_chain[cur_idx + 1] if cur_idx + 1 < len(provider_chain) else None
+            if next_cfg:
+                logger.warning(
+                    f"[provider:{cfg.name}] ❌ Failed → falling back to [{next_cfg.name}] | error: {exc}"
+                )
+            else:
+                logger.error(
+                    f"[provider:{cfg.name}] ❌ Failed — no more providers | error: {exc}"
+                )
+
+    raise RuntimeError(
+        f"All providers exhausted for {to}. Last error: {last_exc}"
+    ) from last_exc
+
+
+def build_provider_chain(override_smtp: Optional[Dict[str, Any]] = None) -> List[RoutedProviderConfig]:
+    """
+    Convenience wrapper: detect configured providers and return priority chain.
+    Pass `override_smtp` dict from the campaign payload for SMTP fallback.
+    """
+    chain = _detect_providers(override_smtp=override_smtp)
+    if not chain:
+        logger.error("No email providers configured! Set env vars: PROVIDER_RESEND_API_KEY, PROVIDER_SENDGRID_API_KEY, etc.")
+    else:
+        names = [c.name for c in chain]
+        logger.info(f"Provider chain: {' → '.join(names)}")
+    return chain

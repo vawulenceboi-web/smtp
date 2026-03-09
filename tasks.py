@@ -1,84 +1,88 @@
 """
-Celery tasks for background job processing.
+Celery worker task definitions.
 
-These tasks are discovered and executed by the Celery worker.
-The task name 'app.tasks.process_campaign_batch' MUST match exactly
-what backend/tasks.py sends via celery_app.send_task().
+The task 'app.tasks.process_campaign_batch' is dispatched by the FastAPI backend
+(backend/tasks.py → celery_app.send_task).  The worker picks it up here.
+
+Provider priority (highest → lowest):
+  1. Resend API
+  2. SendGrid API
+  3. Brevo API
+  4. Mailgun API
+  5. Postmark API
+  6. Zoho API (OAuth)
+  7. SMTP from env vars
+  8. SMTP from campaign payload (absolute fallback)
 """
 
-from celery_worker import celery
+from __future__ import annotations
+
 import logging
-import random
 import os
+import random
 import time
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import httpx
+from celery_worker import celery
+
+# Import provider router — relative path works because tasks.py is at the
+# repo root alongside the `backend/` package.
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from backend.email.provider_router import build_provider_chain, send_with_failover
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Supabase helper (sync, no supabase-py needed)
 # ---------------------------------------------------------------------------
 
-def _send_smtp_email(smtp_host, smtp_port, smtp_username, smtp_password,
-                     from_email, to_list, subject, body, use_tls=True):
-    """Synchronous SMTP send using Python's built-in smtplib."""
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_email
-    msg["To"] = ", ".join(to_list)
-
-    mime_type = "html" if body.strip().startswith("<") else "plain"
-    msg.attach(MIMEText(body, mime_type))
-
-    if use_tls:
-        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-    else:
-        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
-
-    server.login(smtp_username, smtp_password)
-    server.sendmail(from_email, to_list, msg.as_string())
-    server.quit()
-
-
-def _update_recipient_status(campaign_id, email, status, provider="smtp"):
-    """Write recipient status back to Supabase synchronously via REST API."""
-    import httpx
-    from datetime import datetime
-
-    supabase_url = os.getenv("SUPABASE_URL", "")
-    supabase_key = os.getenv("SUPABASE_KEY", "")
-    if not supabase_url or not supabase_key:
-        logger.warning("Supabase env vars not set — skipping recipient status update")
-        return
-
-    headers = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
+def _supabase_headers() -> Dict[str, str]:
+    key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
-    now = datetime.utcnow().isoformat()
+
+
+def _update_recipient_status(
+    campaign_id: str,
+    email: str,
+    status: str,
+    provider: str = "",
+) -> None:
+    """Upsert a campaign_recipients row in Supabase."""
+    base = os.getenv("SUPABASE_URL", "")
+    if not base:
+        logger.warning("SUPABASE_URL not set — skipping recipient status update")
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    hdrs = _supabase_headers()
 
     try:
         with httpx.Client(timeout=10) as client:
-            # Try PATCH (update) first
-            resp = client.patch(
-                f"{supabase_url}/rest/v1/campaign_recipients"
+            # Try PATCH first (update existing row)
+            patch_resp = client.patch(
+                f"{base}/rest/v1/campaign_recipients"
                 f"?campaign_id=eq.{campaign_id}&email=eq.{email}",
                 json={"status": status, "provider": provider, "updated_at": now},
-                headers=headers,
+                headers=hdrs,
             )
-            # If nothing was updated (row didn't exist), INSERT it
-            if resp.headers.get("content-range", "").startswith("*/0") or resp.text in ("", "[]"):
+            # Content-Range: */0 means no rows were matched → INSERT instead
+            needs_insert = (
+                patch_resp.status_code == 404
+                or patch_resp.headers.get("content-range", "").endswith("/0")
+                or patch_resp.text in ("", "[]")
+            )
+            if needs_insert:
                 client.post(
-                    f"{supabase_url}/rest/v1/campaign_recipients",
+                    f"{base}/rest/v1/campaign_recipients",
                     json={
                         "campaign_id": campaign_id,
                         "email": email,
@@ -87,94 +91,131 @@ def _update_recipient_status(campaign_id, email, status, provider="smtp"):
                         "created_at": now,
                         "updated_at": now,
                     },
-                    headers=headers,
+                    headers={**hdrs, "Prefer": "return=minimal"},
                 )
-    except Exception as e:
-        logger.warning(f"Could not update recipient status in Supabase: {e}")
+    except Exception as exc:
+        logger.warning(f"[supabase] Could not update recipient status: {exc}")
+
+
+def _update_campaign_counts(campaign_id: str, sent: int, failed: int) -> None:
+    """Update the campaigns table with final sent/failed counts."""
+    base = os.getenv("SUPABASE_URL", "")
+    if not base:
+        return
+
+    total = sent + failed
+    status = "completed" if failed == 0 else ("failed" if sent == 0 else "completed")
+    now = datetime.now(timezone.utc).isoformat()
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            client.patch(
+                f"{base}/rest/v1/campaigns?id=eq.{campaign_id}",
+                json={
+                    "sent_count": sent,
+                    "failed_count": failed,
+                    "status": status,
+                    "updated_at": now,
+                },
+                headers=_supabase_headers(),
+            )
+    except Exception as exc:
+        logger.warning(f"[supabase] Could not update campaign counts: {exc}")
 
 
 # ---------------------------------------------------------------------------
-# Main task — name MUST match what backend/tasks.py dispatches
+# Main Celery task
 # ---------------------------------------------------------------------------
 
-@celery.task(name="app.tasks.process_campaign_batch", bind=True, max_retries=3)
+@celery.task(
+    name="app.tasks.process_campaign_batch",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
 def process_campaign_batch(
     self,
     campaign_id: str,
-    recipients: list,
+    recipients: List[Dict[str, Any]],
     subject: str,
     body: str,
-    headers: dict,
-    provider_config: dict,
-    proxy_config=None,
-):
+    headers: Dict[str, Any],
+    provider_config: Dict[str, Any],
+    proxy_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
-    Processes a campaign batch: sends emails to all recipients via SMTP.
-    Registered as 'app.tasks.process_campaign_batch' to match the name
-    the FastAPI backend dispatches via celery_app.send_task().
+    Worker entry-point.  For each recipient:
+      1. Build provider priority chain from env vars.
+      2. SMTP from campaign payload is the absolute last fallback.
+      3. Try each provider via send_with_failover().
+      4. Write sent/failed status back to Supabase.
+      5. Slow-drip delay between sends (disabled locally via CELERY_SLOW_DRIP=false).
     """
     logger.info(f"[campaign:{campaign_id}] ▶ Starting — {len(recipients)} recipient(s)")
 
-    smtp_host = provider_config.get("smtp_host", "")
-    smtp_port = int(provider_config.get("smtp_port", 587))
-    smtp_username = provider_config.get("smtp_username", "")
-    smtp_password = provider_config.get("smtp_password", "")
-    from_email = provider_config.get("from_email") or smtp_username
-    use_tls = bool((provider_config.get("extra") or {}).get("use_tls", True))
+    # Build provider chain once per batch (shared across all recipients)
+    smtp_override = provider_config if provider_config.get("provider_type") == "smtp" else None
+    provider_chain = build_provider_chain(override_smtp=smtp_override)
 
-    # Disable slow-drip locally, enable in production
+    if not provider_chain:
+        logger.error(f"[campaign:{campaign_id}] No providers configured — aborting")
+        return {"campaign_id": campaign_id, "sent": 0, "failed": len(recipients), "error": "no_providers"}
+
     slow_drip = os.getenv("CELERY_SLOW_DRIP", "true").lower() == "true"
-
     sent = 0
     failed = 0
 
-    for recipient in recipients:
-        email = recipient["email"]
+    for idx, recipient in enumerate(recipients):
+        email = recipient.get("email", "")
+        if not email:
+            logger.warning(f"[campaign:{campaign_id}] Skipping recipient with no email: {recipient}")
+            failed += 1
+            continue
+
         try:
-            logger.info(f"[campaign:{campaign_id}] 📧 Sending to {email} via {smtp_host}:{smtp_port}")
-            _send_smtp_email(
-                smtp_host=smtp_host,
-                smtp_port=smtp_port,
-                smtp_username=smtp_username,
-                smtp_password=smtp_password,
-                from_email=from_email,
-                to_list=[email],
+            used_provider, _ = send_with_failover(
+                to=email,
                 subject=subject,
                 body=body,
-                use_tls=use_tls,
+                provider_chain=provider_chain,
+                campaign_id=campaign_id,
             )
-            _update_recipient_status(campaign_id, email, "sent", provider="smtp")
-            logger.info(f"[campaign:{campaign_id}] ✅ Sent to {email}")
+            _update_recipient_status(campaign_id, email, "sent", provider=used_provider)
             sent += 1
         except Exception as exc:
-            logger.error(f"[campaign:{campaign_id}] ❌ Failed to send to {email}: {exc}")
-            _update_recipient_status(campaign_id, email, "failed", provider="smtp")
+            logger.error(f"[campaign:{campaign_id}] ❌ All providers failed for {email}: {exc}")
+            _update_recipient_status(campaign_id, email, "failed", provider="none")
             failed += 1
 
-        # Slow-drip: wait between sends to avoid spam filters
-        if slow_drip and recipients.index(recipient) < len(recipients) - 1:
+        # Slow-drip wait between sends (skip after last recipient)
+        if slow_drip and idx < len(recipients) - 1:
             delay = random.randint(30, 180)
-            logger.info(f"[campaign:{campaign_id}] ⏳ Waiting {delay}s before next send...")
+            logger.info(f"[campaign:{campaign_id}] ⏳ Slow-drip: waiting {delay}s before next send…")
             time.sleep(delay)
 
-    logger.info(f"[campaign:{campaign_id}] ✔ Done — sent:{sent}  failed:{failed}")
+    # Write final campaign row counts
+    _update_campaign_counts(campaign_id, sent, failed)
+
+    logger.info(f"[campaign:{campaign_id}] ✔ Finished — sent:{sent}  failed:{failed}")
     return {"campaign_id": campaign_id, "sent": sent, "failed": failed}
 
 
 # ---------------------------------------------------------------------------
-# Legacy / health check stubs
+# Health / legacy stubs
 # ---------------------------------------------------------------------------
 
 @celery.task(name="tasks.health_check")
-def health_check():
+def health_check() -> Dict[str, str]:
     return {"status": "healthy", "message": "Celery worker is running"}
 
 
 @celery.task(name="tasks.send_email")
-def send_email(to: str, subject: str, body: str):
+def send_email(to: str, subject: str, body: str) -> Dict[str, str]:
+    """Legacy stub — kept for backward compat."""
     return {"status": "stub", "to": to}
 
 
 @celery.task(name="tasks.process_campaign")
-def process_campaign(campaign_id: str):
+def process_campaign(campaign_id: str) -> Dict[str, str]:
+    """Legacy stub — kept for backward compat."""
     return {"status": "stub", "campaign_id": campaign_id}
