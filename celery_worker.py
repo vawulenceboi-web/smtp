@@ -41,6 +41,7 @@ celery = Celery(
     "email_orchestrator",
     broker=broker_url,
     backend=result_backend,
+    include=["tasks"],  # Explicitly load tasks.py module
 )
 
 # Configure Celery settings
@@ -53,5 +54,3 @@ celery.conf.update(
     broker_connection_retry_on_startup=True,
 )
 
-# Auto-discover tasks from tasks.py in the same directory
-celery.autodiscover_tasks(['tasks'], force=True)
