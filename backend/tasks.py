@@ -19,7 +19,7 @@ from .proxy import ProxyConfig, ProxyRotationManager
 from .storage import set_recipient_status as legacy_set_recipient_status
 
 # Import the new synchronous provider router
-from .email.provider_router import build_provider_chain, send_with_failover
+from .email.provider_router import build_provider_chain_from_payload, send_with_failover
 
 logger = logging.getLogger(__name__)
 
@@ -191,8 +191,11 @@ def process_campaign_batch(
     logger.info(f"[campaign:{campaign_id}] ▶ Starting — {len(recipients)} recipient(s)")
 
     # Build provider chain once per batch (shared across all recipients)
-    smtp_override = provider_config if provider_config.get("provider_type") == "smtp" else None
-    provider_chain = build_provider_chain(override_smtp=smtp_override)
+    # This enforces the rule:
+    #   - If api_key & base_url -> API provider first
+    #   - Then any fallback API providers
+    #   - SMTP only as final fallback
+    provider_chain = build_provider_chain_from_payload(provider_config)
 
     if not provider_chain:
         logger.error(f"[campaign:{campaign_id}] No providers configured — aborting")
