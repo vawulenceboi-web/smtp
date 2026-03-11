@@ -3,20 +3,17 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Mail, Network, FileText, BarChart3, Menu, X, Settings, Shield, Bell } from 'lucide-react';
+import { LayoutDashboard, Mail, FileText, BarChart3, Menu, X, Shield } from 'lucide-react';
 
 const navigationItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Campaigns', href: '/campaigns', icon: Mail },
-  { name: 'SMTP Relays', href: '/relays', icon: Network },
   { name: 'Templates', href: '/templates', icon: FileText },
   { name: 'Reporting', href: '/reporting', icon: BarChart3 },
 ];
 
 const adminItems = [
-  { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Administrators', href: '/admins', icon: Shield },
-  { name: 'Notifications', href: '/notifications', icon: Bell },
 ];
 
 export function Sidebar() {
@@ -58,7 +55,7 @@ export function Sidebar() {
             <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
               <Mail className="w-5 h-5 text-sidebar-primary-foreground" />
             </div>
-            SMTP Tool
+            Email Console
           </h1>
         </div>
 

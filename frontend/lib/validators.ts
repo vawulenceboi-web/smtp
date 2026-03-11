@@ -1,14 +1,5 @@
 import { z } from 'zod';
 
-export const relayConfigSchema = z.object({
-  name: z.string().min(1, 'Relay name is required').max(100),
-  host: z.string().min(1, 'SMTP host is required').min(3, 'Invalid host'),
-  port: z.number().min(1).max(65535),
-  useTLS: z.boolean(),
-  username: z.string().min(1, 'Username is required'),
-  password: z.string().min(1, 'Password is required'),
-});
-
 export const senderDetailsSchema = z.object({
   fromName: z.string().min(1, 'Sender name is required').max(100),
   fromEmail: z.string().email('Invalid email address'),
@@ -46,6 +37,5 @@ export function validateEmailList(text: string): { emails: string[]; invalid: st
   return { emails, invalid };
 }
 
-export type RelayConfigInput = z.infer<typeof relayConfigSchema>;
 export type SenderDetailsInput = z.infer<typeof senderDetailsSchema>;
 export type TemplateInput = z.infer<typeof templateSchema>;

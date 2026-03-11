@@ -1,13 +1,3 @@
-// SMTP Relay Configuration
-export interface SMTPRelayConfig {
-  name: string;
-  host: string;
-  port: number;
-  useTLS: boolean;
-  username: string;
-  password: string;
-}
-
 // Sender Details
 export interface SenderDetails {
   fromName: string;
@@ -33,7 +23,6 @@ export interface Campaign {
   id: string;
   name: string;
   createdAt: Date;
-  relayConfig: SMTPRelayConfig;
   senderDetails: SenderDetails;
   targets: EmailTarget[];
   template: EmailTemplate;
@@ -51,15 +40,15 @@ export interface EmailExecutionStatus {
 // Campaign Context Type
 export interface CampaignContextType {
   currentStep: number;
-  relayConfig: SMTPRelayConfig;
   senderDetails: SenderDetails;
   targets: EmailTarget[];
   template: EmailTemplate;
   executionStatus: EmailExecutionStatus[];
   setStep: (step: number) => void;
-  updateRelayConfig: (config: Partial<SMTPRelayConfig>) => void;
   updateSenderDetails: (details: Partial<SenderDetails>) => void;
   updateTargets: (targets: EmailTarget[]) => void;
   updateTemplate: (template: Partial<EmailTemplate>) => void;
   setExecutionStatus: (statuses: EmailExecutionStatus[]) => void;
-  reset: () => void;  saveCampaignState: () => void;}
+  reset: () => void;
+  saveCampaignState: () => void;
+}

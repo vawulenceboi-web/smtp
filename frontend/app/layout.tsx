@@ -8,8 +8,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'SMTP Testing Tool',
-  description: 'Professional SMTP Testing Dashboard',
+  title: 'Email Campaign Console',
+  description: 'Email campaign dashboard and templates',
   icons: {
     icon: [
       {

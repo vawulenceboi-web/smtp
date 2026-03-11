@@ -21,20 +21,17 @@ class ProviderConfigManager:
     
     @staticmethod
     def load_zoho() -> Optional[ProviderConfig]:
-        """Load Zoho SMTP provider from env vars"""
-        host = os.getenv("PROVIDER_ZOHO_HOST")
-        if not host:
+        """Load Zoho API provider from env vars"""
+        api_key = os.getenv("PROVIDER_ZOHO_API_KEY")
+        account_id = os.getenv("PROVIDER_ZOHO_ACCOUNT_ID")
+        if not api_key or not account_id:
             return None
-        
+
         return ProviderConfig(
             provider_type=ProviderType.ZOHO,
-            smtp_host=host,
-            smtp_port=int(os.getenv("PROVIDER_ZOHO_PORT", "587")),
-            smtp_username=os.getenv("PROVIDER_ZOHO_USERNAME", ""),
-            smtp_password=os.getenv("PROVIDER_ZOHO_PASSWORD", ""),
+            api_key=api_key,
             from_email=os.getenv("PROVIDER_ZOHO_FROM_EMAIL", ""),
-            api_key=os.getenv("PROVIDER_ZOHO_API_KEY"),  # For API fallback
-            extra={"account_id": os.getenv("PROVIDER_ZOHO_ACCOUNT_ID", "")},
+            extra={"account_id": account_id},
         )
     
     @staticmethod
@@ -117,7 +114,7 @@ class ProviderConfigManager:
         zoho = ProviderConfigManager.load_zoho()
         if zoho:
             providers["zoho"] = zoho
-            logger.info("✅ Loaded Zoho SMTP provider from environment variables")
+            logger.info("✅ Loaded Zoho API provider from environment variables")
         
         sendgrid = ProviderConfigManager.load_sendgrid()
         if sendgrid:

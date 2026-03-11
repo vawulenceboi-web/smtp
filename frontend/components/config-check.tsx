@@ -49,7 +49,7 @@ export function ConfigCheck() {
             <div className="mt-2 bg-red-100 p-2 rounded font-mono text-red-900">
               <p>For Vercel: Add environment variable in project settings</p>
               <p className="mt-1">Key: <code>NEXT_PUBLIC_API_URL</code></p>
-              <p>Value: <code>https://smtp-production-2752.up.railway.app</code></p>
+              <p>Value: <code>https://your-backend.example.com</code></p>
               <p className="mt-1">Then redeploy the project</p>
             </div>
           </details>

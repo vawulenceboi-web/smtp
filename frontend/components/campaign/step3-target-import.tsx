@@ -37,7 +37,7 @@ export function Step3TargetImport() {
         isValid: true,
       }));
       updateTargets(emailTargets);
-      setStep(4);
+      setStep(3);
     }
   };
 

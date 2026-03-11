@@ -24,7 +24,7 @@ export function Step2SenderDetails() {
 
   const onSubmit = (data: any) => {
     updateSenderDetails(data);
-    setStep(3);
+    setStep(2);
   };
 
   return (

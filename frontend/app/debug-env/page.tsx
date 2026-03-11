@@ -34,12 +34,12 @@ export default function DebugPage() {
     console.log('%c📍 What this means:', 'font-size: 12px; font-weight: bold;');
     if (apiUrl === 'NOT SET') {
       console.warn('%c❌ API URL NOT SET', 'color: red; font-weight: bold;');
-      console.log('   → API requests will be RELATIVE (e.g., /api/relays/test-connection)');
-      console.log('   → This means requests go to:', window.location.origin + '/api/relays/test-connection');
+      console.log('   → API requests will be RELATIVE (e.g., /api/campaigns)');
+      console.log('   → This means requests go to:', window.location.origin + '/api/campaigns');
       console.log('   → This will FAIL with 404 because the frontend host is not the backend!');
       console.log('%cFIX:', 'color: red; font-weight: bold;');
       console.log('   In Vercel: Set NEXT_PUBLIC_API_URL environment variable');
-      console.log('   Example: https://your-backend-railway-url.railway.app');
+      console.log('   Example: https://your-backend.example.com');
     } else {
       console.log('%c✅ API URL IS SET', 'color: green; font-weight: bold;');
       console.log('   → API requests will be sent to:', apiUrl);
@@ -74,66 +74,6 @@ export default function DebugPage() {
         },
       });
       console.error('❌ Health check failed:', error);
-    }
-  };
-
-  const testRelaysEndpoint = async () => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      alert('❌ NEXT_PUBLIC_API_URL is not set. Cannot test.');
-      return;
-    }
-
-    try {
-      console.log('🧪 Testing /api/relays/debug endpoint (simple test)...');
-      const debugResponse = await fetch(`${apiUrl}/api/relays/debug`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      if (!debugResponse.ok) {
-        console.error('❌ Debug endpoint failed:', debugResponse.status);
-        setInfo({
-          ...info!,
-          testResult: {
-            status: debugResponse.status,
-            error: `Debug endpoint returned ${debugResponse.status}. Router may not be working.`,
-          },
-        });
-        return;
-      }
-
-      const debugData = await debugResponse.json();
-      console.log('✅ Debug endpoint working:', debugData);
-      
-      // Now try the actual test-connection endpoint
-      console.log('🧪 Testing test-connection endpoint...');
-      const response = await fetch(`${apiUrl}/api/relays/test-connection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: 'smtp.gmail.com',
-          port: 587,
-          username: 'test@example.com',
-          password: 'test123',
-          use_tls: true,
-        }),
-      });
-      const data = await response.json();
-      setInfo({
-        ...info!,
-        testResult: { status: response.status, data },
-      });
-      console.log('Response:', { status: response.status, data });
-    } catch (error) {
-      setInfo({
-        ...info!,
-        testResult: {
-          status: 0,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-      console.error('❌ Test failed:', error);
     }
   };
 
@@ -174,13 +114,13 @@ export default function DebugPage() {
               <div className="text-red-100 text-sm space-y-2">
                 <p>This is why you're getting 404 errors!</p>
                 <p className="font-mono bg-red-950 p-2 rounded">
-                  Requests will go to: {info.origin}/api/relays/test-connection (WRONG!)
+                  Requests will go to: {info.origin}/api/campaigns (WRONG!)
                 </p>
                 <p className="font-semibold mt-3">Fix for Vercel:</p>
                 <ol className="list-decimal list-inside space-y-1">
                   <li>Go to Vercel Dashboard → Your Project → Settings → Environment Variables</li>
                   <li>Add: <span className="font-mono bg-slate-800 px-2 py-1">NEXT_PUBLIC_API_URL</span></li>
-                  <li>Value: Your Railway backend URL (e.g., https://smtp-backend-xxx.railway.app)</li>
+                  <li>Value: Your backend URL (e.g., https://your-backend.example.com)</li>
                   <li>Redeploy the frontend</li>
                 </ol>
               </div>
@@ -206,17 +146,6 @@ export default function DebugPage() {
               }`}
             >
               🏥 Test /health Endpoint
-            </button>
-            <button
-              onClick={testRelaysEndpoint}
-              disabled={!apiUrlSet}
-              className={`w-full py-2 px-4 rounded font-semibold transition ${
-                apiUrlSet
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                  : 'bg-slate-600 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              � Test /api/relays Router
             </button>
           </div>
 

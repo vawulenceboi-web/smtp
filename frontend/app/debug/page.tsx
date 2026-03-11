@@ -142,7 +142,7 @@ export default function DebugPage() {
               </li>
               <li className="flex gap-2">
                 <span className="text-yellow-400 font-bold shrink-0">2.</span>
-                Select <code className="bg-slate-900 px-2 py-1 rounded text-xs">smtp</code> project
+                Select your project
               </li>
               <li className="flex gap-2">
                 <span className="text-yellow-400 font-bold shrink-0">3.</span>
@@ -153,7 +153,7 @@ export default function DebugPage() {
                 Click <strong>Add</strong>, then fill in:
                 <div className="bg-slate-900 p-3 rounded border border-slate-600 text-xs font-mono mt-1 w-full">
                   <div>Key: <span className="text-blue-300">NEXT_PUBLIC_API_URL</span></div>
-                  <div>Value: <span className="text-blue-300">https://smtp-production-2752.up.railway.app</span></div>
+                  <div>Value: <span className="text-blue-300">https://your-backend.example.com</span></div>
                   <div>Select: <span className="text-blue-300">Production</span></div>
                 </div>
               </li>
@@ -183,13 +183,6 @@ export default function DebugPage() {
               className="w-full p-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded font-medium transition-colors"
             >
               🏥 Test /health
-            </button>
-            <button
-              onClick={() => testEndpoint('/api/relays', 'List Relays')}
-              disabled={isTesting}
-              className="w-full p-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded font-medium transition-colors"
-            >
-              🔗 Test /api/relays
             </button>
             <button
               onClick={() => testEndpoint('/api/templates', 'List Templates')}
@@ -233,7 +226,7 @@ export default function DebugPage() {
             <strong>Problem:</strong> Without NEXT_PUBLIC_API_URL, requests go to Vercel instead of Railway → 404 errors
           </p>
           <p>
-            <strong>Solution:</strong> Set the environment variable to tell frontend where backend lives: <code className="bg-slate-800 px-2 py-1 rounded text-xs">https://smtp-production-2752.up.railway.app</code>
+            <strong>Solution:</strong> Set the environment variable to tell frontend where backend lives: <code className="bg-slate-800 px-2 py-1 rounded text-xs">https://your-backend.example.com</code>
           </p>
         </div>
       </div>

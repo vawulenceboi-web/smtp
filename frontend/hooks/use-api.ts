@@ -14,16 +14,6 @@ interface ApiResponse<T> {
  * This hook is kept for backwards compatibility but delegates to centralized API client
  */
 export function useApi() {
-  // Relay API methods
-  const relays = useMemo(() => ({
-    list: () => apiGet<any[]>('/api/relays'),
-    get: (id: string) => apiGet<any>(`/api/relays/${id}`),
-    create: (data: any) => apiPost<any>('/api/relays', data),
-    update: (id: string, data: any) => apiPut<any>(`/api/relays/${id}`, data),
-    delete: (id: string) => apiDelete<any>(`/api/relays/${id}`),
-    test: (id: string) => apiPost<any>(`/api/relays/${id}/test`, {}),
-  }), []);
-
   // Template API methods
   const templates = useMemo(() => ({
     list: () => apiGet<any[]>('/api/templates'),
@@ -42,7 +32,6 @@ export function useApi() {
   }), []);
 
   return {
-    relays,
     templates,
     campaigns,
   };

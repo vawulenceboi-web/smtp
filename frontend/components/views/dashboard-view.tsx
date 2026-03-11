@@ -9,7 +9,7 @@ export function DashboardView() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground mt-1">
-          Monitor email campaigns, delivery performance, and relay health.
+          Monitor email campaigns and delivery performance.
         </p>
       </div>
 
@@ -19,7 +19,7 @@ export function DashboardView() {
           <div className="p-6 bg-gradient-to-br from-blue-500/20 to-blue-500/5 border border-blue-500/30 rounded-lg hover:border-blue-500/50 transition-colors cursor-pointer">
             <h3 className="text-lg font-semibold text-foreground mb-2">New Campaign</h3>
             <p className="text-sm text-muted-foreground">
-              Create and launch a new outbound email campaign using your configured relays.
+              Create and launch a new outbound email campaign using your configured providers.
             </p>
           </div>
         </Link>

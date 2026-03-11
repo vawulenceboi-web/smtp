@@ -9,7 +9,7 @@ import { AlertCircle, Code, CheckCircle, Loader } from 'lucide-react';
 import { apiPost } from '@/lib/api-client';
 
 export function Step4TemplateEditor() {
-  const { template, updateTemplate, relayConfig, senderDetails, targets } = useCampaign();
+  const { template, updateTemplate, senderDetails, targets } = useCampaign();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [submitMessage, setSubmitMessage] = useState('');
@@ -31,22 +31,9 @@ export function Step4TemplateEditor() {
     updateTemplate(data);
     
     // Validate all required data is present
-    if (!relayConfig.host || !senderDetails.fromEmail || targets.length === 0 || !data.subject) {
+    if (!senderDetails.fromEmail || targets.length === 0 || !data.subject || !data.bodyContent) {
       setSubmitStatus('error');
-      setSubmitMessage('Please complete all steps: SMTP relay, sender details, target emails, and template');
-      return;
-    }
-
-    // Validate SMTP credentials format
-    const smtpErrors: string[] = [];
-    if (!relayConfig.host) smtpErrors.push('SMTP Host is required');
-    if (!relayConfig.port || relayConfig.port < 1 || relayConfig.port > 65535) smtpErrors.push('Valid SMTP Port is required (1-65535)');
-    if (!relayConfig.username) smtpErrors.push('SMTP Username is required');
-    if (!relayConfig.password) smtpErrors.push('SMTP Password is required');
-    
-    if (smtpErrors.length > 0) {
-      setSubmitStatus('error');
-      setSubmitMessage(`Invalid SMTP credentials: ${smtpErrors.join(', ')}`);
+      setSubmitMessage('Please complete all steps: sender details, target emails, and template');
       return;
     }
 
@@ -54,13 +41,6 @@ export function Step4TemplateEditor() {
       setIsSubmitting(true);
       setSubmitStatus('idle');
       setSubmitMessage('');
-
-      console.log('📧 Submitting campaign with SMTP credentials:', {
-        host: relayConfig.host,
-        port: relayConfig.port,
-        username: relayConfig.username,
-        use_tls: relayConfig.useTLS,
-      });
 
       // Generate a campaign ID (must be a valid UUID for PostgreSQL)
       const campaignId = crypto.randomUUID();
@@ -81,16 +61,7 @@ export function Step4TemplateEditor() {
           ...(data.inReplyToId && { 'In-Reply-To': data.inReplyToId }),
         },
         provider_config: {
-          provider_type: 'smtp',
-          smtp_host: relayConfig.host,
-          smtp_port: relayConfig.port,
-          smtp_username: relayConfig.username,
-          smtp_password: relayConfig.password,
-          from_email: senderDetails.fromEmail,
-          extra: {
-            use_tls: relayConfig.useTLS,
-            relay_name: relayConfig.name,
-          },
+          provider_type: 'auto',
         },
       };
 
@@ -104,7 +75,6 @@ export function Step4TemplateEditor() {
         throw new Error(apiError);
       }
 
-      const result = response;
       setSubmitStatus('success');
       setSubmitMessage(`Campaign successfully queued! ID: ${campaignId}`);
     } catch (err) {
@@ -247,13 +217,6 @@ export function Step4TemplateEditor() {
               )}
             </div>
           </div>
-        </div>
-
-        {/* Info Box */}
-        <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-          <p className="text-sm text-blue-300">
-            <strong>Note:</strong> Your SMTP credentials will be validated when you submit the campaign. If there are any connection issues, you'll see an error message here. Use HTML for rich formatting or plain text.
-          </p>
         </div>
 
         {/* Status Messages */}

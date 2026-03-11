@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   CampaignContextType,
-  SMTPRelayConfig,
   SenderDetails,
   EmailTarget,
   EmailTemplate,
@@ -11,15 +10,6 @@ import {
 } from './types';
 
 const CampaignContext = createContext<CampaignContextType | undefined>(undefined);
-
-const initialRelayConfig: SMTPRelayConfig = {
-  name: '',
-  host: '',
-  port: 587,
-  useTLS: true,
-  username: '',
-  password: '',
-};
 
 const initialSenderDetails: SenderDetails = {
   fromName: '',
@@ -35,7 +25,6 @@ const initialTemplate: EmailTemplate = {
 
 export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [relayConfig, setRelayConfig] = useState<SMTPRelayConfig>(initialRelayConfig);
   const [senderDetails, setSenderDetails] = useState<SenderDetails>(initialSenderDetails);
   const [targets, setTargets] = useState<EmailTarget[]>([]);
   const [template, setTemplate] = useState<EmailTemplate>(initialTemplate);
@@ -50,7 +39,6 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
       try {
         const state = JSON.parse(saved);
         setCurrentStep(state.currentStep || 1);
-        setRelayConfig(state.relayConfig || initialRelayConfig);
         setSenderDetails(state.senderDetails || initialSenderDetails);
         setTargets(state.targets || []);
         setTemplate(state.template || initialTemplate);
@@ -65,10 +53,6 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
 
   // Only save to localStorage when explicitly saving (not on every change)
   // This prevents excessive storage writes and reduces cache persistence issues
-
-  const updateRelayConfig = (config: Partial<SMTPRelayConfig>) => {
-    setRelayConfig((prev) => ({ ...prev, ...config }));
-  };
 
   const updateSenderDetails = (details: Partial<SenderDetails>) => {
     setSenderDetails((prev) => ({ ...prev, ...details }));
@@ -85,7 +69,6 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const saveCampaignState = () => {
     const state = {
       currentStep,
-      relayConfig,
       senderDetails,
       targets,
       template,
@@ -96,7 +79,6 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
 
   const reset = () => {
     setCurrentStep(1);
-    setRelayConfig(initialRelayConfig);
     setSenderDetails(initialSenderDetails);
     setTargets([]);
     setTemplate(initialTemplate);
@@ -107,13 +89,11 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
 
   const value: CampaignContextType = {
     currentStep,
-    relayConfig,
     senderDetails,
     targets,
     template,
     executionStatus,
     setStep: setCurrentStep,
-    updateRelayConfig,
     updateSenderDetails,
     updateTargets,
     updateTemplate,

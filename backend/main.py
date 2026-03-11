@@ -11,7 +11,7 @@ from .proxy import ProxyRotationManager, ProxyConfig
 from .reputation import check_ip_reputation
 from .tasks import enqueue_campaign_batch
 from .storage import get_campaign_status, register_campaign, list_campaigns
-from .api import relays, templates, settings, admins, notifications
+from .api import templates, settings, admins, notifications
 from .config import CONFIGURED_PROVIDERS
 from datetime import datetime
 import uuid
@@ -282,7 +282,6 @@ async def campaign_status(campaign_id: str):
 
 
 # Register API routers with /api prefix
-app.include_router(relays.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(admins.router, prefix="/api")

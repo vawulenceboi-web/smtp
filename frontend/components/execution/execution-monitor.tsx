@@ -8,8 +8,7 @@ import { apiPost, apiGet } from '@/lib/api-client';
 import { EmailStatusTable } from './email-status-table';
 
 export function ExecutionMonitor() {
-  const { targets, executionStatus, setExecutionStatus, relayConfig, senderDetails, template } =
-    useCampaign();
+  const { targets, executionStatus, setExecutionStatus, senderDetails, template } = useCampaign();
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [campaignId, setCampaignId] = useState<string | null>(null);
@@ -29,7 +28,7 @@ export function ExecutionMonitor() {
       return;
     }
 
-    if (!relayConfig.host || !senderDetails.fromEmail || !template.subject || !template.bodyContent) {
+    if (!senderDetails.fromEmail || !template.subject || !template.bodyContent) {
       alert('Please complete the campaign builder before starting execution.');
       return;
     }
@@ -55,13 +54,7 @@ export function ExecutionMonitor() {
         body: template.bodyContent,
         headers: {},
         provider_config: {
-          provider_type: 'smtp',
-          smtp_host: relayConfig.host,
-          smtp_port: relayConfig.port,
-          smtp_username: relayConfig.username,
-          smtp_password: relayConfig.password,
-          from_email: senderDetails.fromEmail,
-          extra: {},
+          provider_type: 'auto',
         },
         proxy_config: null,
         sender_ip: null,
