@@ -8,6 +8,7 @@ import aiosmtplib
 from .proxy import ProxyRotationManager
 from .user_agent import random_user_agent, random_x_mailer
 from .requeue import requeue_send_email
+from .zoho_token_manager import get_valid_zoho_token
 from pydantic.dataclasses import dataclass
 
 
@@ -219,9 +220,11 @@ class ZohoProvider(BaseEmailProvider):
         else:
             if not account_id:
                 raise Exception("Zoho requires provider_config.extra.account_id")
-            url = f"https://mail.zoho.com/api/accounts/{account_id}/messages"
+            url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+        access_token = get_valid_zoho_token()
         auth_headers = {
-            "Authorization": f"Zoho-oauthtoken {provider_config.api_key}",
+            "Authorization": f"Zoho-oauthtoken {access_token}",
+            "Content-Type": "application/json",
         }
         final_headers = self._augment_headers({**auth_headers, **(headers or {})})
 
@@ -612,4 +615,3 @@ class ProviderFactory:
         if config.provider_type == ProviderType.SMTP:
             return SMTPProvider(config, proxy_manager)
         raise ValueError(f"Unsupported provider type: {config.provider_type}")
-

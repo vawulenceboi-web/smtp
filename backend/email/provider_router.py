@@ -113,7 +113,7 @@ def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[Routed
         account_id = (cfg.extra or {}).get("account_id")
         if not (cfg.api_key and (cfg.base_url or account_id)):
             return None
-        base_url = cfg.base_url or f"https://mail.zoho.com/api/accounts/{account_id}/messages"
+        base_url = cfg.base_url or f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
         return RoutedProviderConfig(
             name=name or "zoho-api",
             provider_type="zoho-api",
