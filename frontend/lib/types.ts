@@ -16,6 +16,18 @@ export interface EmailTemplate {
   replyTo: string;
   inReplyToId: string;
   bodyContent: string;
+  templateId?: string;
+}
+
+export interface RelayConfig {
+  name?: string;
+  port: number;
+  host?: string;
+  username?: string;
+  password?: string;
+  useTls?: boolean;
+  useTLS?: boolean;
+  providerKey?: string;
 }
 
 // Campaign Data
@@ -26,6 +38,7 @@ export interface Campaign {
   senderDetails: SenderDetails;
   targets: EmailTarget[];
   template: EmailTemplate;
+  relayConfig?: RelayConfig;
   status: 'draft' | 'running' | 'completed' | 'paused';
 }
 
@@ -44,10 +57,12 @@ export interface CampaignContextType {
   targets: EmailTarget[];
   template: EmailTemplate;
   executionStatus: EmailExecutionStatus[];
+  relayConfig: RelayConfig;
   setStep: (step: number) => void;
   updateSenderDetails: (details: Partial<SenderDetails>) => void;
   updateTargets: (targets: EmailTarget[]) => void;
   updateTemplate: (template: Partial<EmailTemplate>) => void;
+  updateRelayConfig: (config: Partial<RelayConfig>) => void;
   setExecutionStatus: (statuses: EmailExecutionStatus[]) => void;
   reset: () => void;
   saveCampaignState: () => void;

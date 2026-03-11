@@ -74,7 +74,7 @@ def _normalize_provider_type(provider_type: Any) -> str:
 def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[RoutedProviderConfig]:
     if provider_type == "zoho":
         account_id = (cfg.extra or {}).get("account_id")
-        if not (cfg.api_key and (cfg.base_url or account_id)):
+        if not (cfg.base_url or account_id):
             return None
         base_url = cfg.base_url or f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
         return RoutedProviderConfig(
@@ -212,10 +212,13 @@ def _send_via_postmark(cfg: RoutedProviderConfig, to: str, subject: str, body: s
 
 
 def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
+    from ..zoho_token_manager import get_valid_zoho_token
+
+    access_token = cfg.api_key or get_valid_zoho_token()
     resp = httpx.post(
         cfg.base_url or "",
         headers={
-            "Authorization": f"Zoho-oauthtoken {cfg.api_key}",
+            "Authorization": f"Zoho-oauthtoken {access_token}",
             "Content-Type": "application/json",
         },
         json={

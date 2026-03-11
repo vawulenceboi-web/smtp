@@ -68,6 +68,9 @@ async def register_campaign(campaign_id: str, metadata: Dict[str, Any]):
         "updated_at": datetime.utcnow().isoformat(),
     }
 
+    if metadata.get("template_id"):
+        campaign_data["template_id"] = metadata.get("template_id")
+
     await db.create_campaign(campaign_data)
     logger.info(f"   Campaign {campaign_id} registered in DB")
 
@@ -99,4 +102,3 @@ async def get_campaign_status(campaign_id: str) -> Dict[str, Any]:
         "campaign": campaign,
         "recipients": recipients_dict,
     }
-

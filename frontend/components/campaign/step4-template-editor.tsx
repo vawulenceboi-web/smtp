@@ -1,34 +1,116 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useCampaign } from '@/lib/campaign-context';
 import { templateSchema } from '@/lib/validators';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle, Code, CheckCircle, Loader } from 'lucide-react';
-import { apiPost } from '@/lib/api-client';
+import { apiGet, apiPost } from '@/lib/api-client';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+interface TemplateOption {
+  id: string;
+  name: string;
+  subject: string;
+  body_content: string;
+  reply_to?: string;
+  in_reply_to_id?: string;
+}
 
 export function Step4TemplateEditor() {
   const { template, updateTemplate, senderDetails, targets } = useCampaign();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [submitMessage, setSubmitMessage] = useState('');
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    template.templateId || 'custom'
+  );
 
   const {
     register,
     handleSubmit,
     formState: { errors },
     watch,
+    setValue,
   } = useForm({
     resolver: zodResolver(templateSchema),
-    defaultValues: template,
+    defaultValues: {
+      subject: template.subject,
+      replyTo: template.replyTo,
+      inReplyToId: template.inReplyToId,
+      bodyContent: template.bodyContent,
+    },
   });
 
   const bodyContent = watch('bodyContent');
 
+  useEffect(() => {
+    setSelectedTemplateId(template.templateId || 'custom');
+  }, [template.templateId]);
+
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        setTemplatesLoading(true);
+        setTemplatesError(null);
+        const { data, error } = await apiGet<TemplateOption[]>('/api/templates');
+        if (error) {
+          throw new Error(error);
+        }
+        setTemplates(data || []);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load templates';
+        setTemplatesError(message);
+      } finally {
+        setTemplatesLoading(false);
+      }
+    };
+
+    fetchTemplates();
+  }, []);
+
+  const handleTemplateSelect = (value: string) => {
+    setSelectedTemplateId(value);
+    if (value === 'custom') {
+      updateTemplate({ templateId: '' });
+      return;
+    }
+
+    const selected = templates.find((item) => item.id === value);
+    if (!selected) return;
+
+    const nextReplyTo = selected.reply_to || '';
+    const nextInReplyToId = selected.in_reply_to_id || '';
+    const nextBody = selected.body_content || '';
+
+    setValue('subject', selected.subject, { shouldDirty: true, shouldValidate: true });
+    setValue('bodyContent', nextBody, { shouldDirty: true, shouldValidate: true });
+    setValue('replyTo', nextReplyTo, { shouldDirty: true, shouldValidate: true });
+    setValue('inReplyToId', nextInReplyToId, { shouldDirty: true, shouldValidate: true });
+
+    updateTemplate({
+      templateId: selected.id,
+      subject: selected.subject,
+      bodyContent: nextBody,
+      replyTo: nextReplyTo,
+      inReplyToId: nextInReplyToId,
+    });
+  };
+
   const onSubmit = async (data: any) => {
     // First save the template data
-    updateTemplate(data);
+    const resolvedTemplateId = selectedTemplateId !== 'custom' ? selectedTemplateId : '';
+    updateTemplate({ ...data, templateId: resolvedTemplateId });
     
     // Validate all required data is present
     if (!senderDetails.fromEmail || targets.length === 0 || !data.subject || !data.bodyContent) {
@@ -46,6 +128,7 @@ export function Step4TemplateEditor() {
       const campaignId = crypto.randomUUID();
 
       // Prepare campaign request
+      const templateId = resolvedTemplateId || undefined;
       const campaignRequest = {
         campaign_id: campaignId,
         recipients: targets.map(t => ({
@@ -63,6 +146,7 @@ export function Step4TemplateEditor() {
         provider_config: {
           provider_type: 'auto',
         },
+        ...(templateId ? { template_id: templateId } : {}),
       };
 
       console.log('📨 Sending campaign request:', { campaign_id: campaignId, recipients: targets.length });
@@ -104,6 +188,33 @@ export function Step4TemplateEditor() {
           {/* Left Pane - Headers */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-foreground">Email Headers</h3>
+
+            {/* Template Selector */}
+            <div>
+              <label htmlFor="templateSelect" className="block text-sm font-medium text-foreground mb-2">
+                Select Template
+              </label>
+              <Select
+                value={selectedTemplateId}
+                onValueChange={handleTemplateSelect}
+                disabled={templatesLoading}
+              >
+                <SelectTrigger className="w-full" id="templateSelect">
+                  <SelectValue placeholder={templatesLoading ? 'Loading templates...' : 'Select a template'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Custom (No template)</SelectItem>
+                  {templates.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {templatesError && (
+                <p className="mt-1 text-xs text-destructive">{templatesError}</p>
+              )}
+            </div>
 
             {/* Subject */}
             <div>

@@ -24,7 +24,14 @@ class ProviderConfigManager:
         """Load Zoho API provider from env vars"""
         api_key = os.getenv("PROVIDER_ZOHO_API_KEY")
         account_id = os.getenv("PROVIDER_ZOHO_ACCOUNT_ID")
-        if not api_key or not account_id:
+        has_oauth = all(
+            [
+                os.getenv("ZOHO_CLIENT_ID"),
+                os.getenv("ZOHO_CLIENT_SECRET"),
+                os.getenv("ZOHO_REFRESH_TOKEN"),
+            ]
+        )
+        if not account_id or (not api_key and not has_oauth):
             return None
 
         return ProviderConfig(
@@ -114,7 +121,7 @@ class ProviderConfigManager:
         zoho = ProviderConfigManager.load_zoho()
         if zoho:
             providers["zoho"] = zoho
-            logger.info("✅ Loaded Zoho API provider from environment variables")
+            logger.info("Loaded Zoho provider from environment variables")
         
         sendgrid = ProviderConfigManager.load_sendgrid()
         if sendgrid:

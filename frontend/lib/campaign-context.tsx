@@ -7,6 +7,7 @@ import {
   EmailTarget,
   EmailTemplate,
   EmailExecutionStatus,
+  RelayConfig,
 } from './types';
 
 const CampaignContext = createContext<CampaignContextType | undefined>(undefined);
@@ -21,6 +22,11 @@ const initialTemplate: EmailTemplate = {
   replyTo: '',
   inReplyToId: '',
   bodyContent: '',
+  templateId: '',
+};
+
+const initialRelayConfig: RelayConfig = {
+  port: 0,
 };
 
 export function CampaignProvider({ children }: { children: React.ReactNode }) {
@@ -29,6 +35,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [targets, setTargets] = useState<EmailTarget[]>([]);
   const [template, setTemplate] = useState<EmailTemplate>(initialTemplate);
   const [executionStatus, setExecutionStatus] = useState<EmailExecutionStatus[]>([]);
+  const [relayConfig, setRelayConfig] = useState<RelayConfig>(initialRelayConfig);
 
   // Load from localStorage on mount (only in browser) - but only if explicitly saved
   useEffect(() => {
@@ -42,6 +49,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
         setSenderDetails(state.senderDetails || initialSenderDetails);
         setTargets(state.targets || []);
         setTemplate(state.template || initialTemplate);
+        setRelayConfig(state.relayConfig || initialRelayConfig);
         console.log('📂 Loaded campaign state from localStorage');
       } catch (error) {
         console.error('Failed to load campaign state:', error);
@@ -66,12 +74,17 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     setTemplate((prev) => ({ ...prev, ...newTemplate }));
   };
 
+  const updateRelayConfig = (config: Partial<RelayConfig>) => {
+    setRelayConfig((prev) => ({ ...prev, ...config }));
+  };
+
   const saveCampaignState = () => {
     const state = {
       currentStep,
       senderDetails,
       targets,
       template,
+      relayConfig,
     };
     localStorage.setItem('campaignState', JSON.stringify(state));
     console.log('💾 Campaign state saved to localStorage');
@@ -83,6 +96,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     setTargets([]);
     setTemplate(initialTemplate);
     setExecutionStatus([]);
+    setRelayConfig(initialRelayConfig);
     localStorage.removeItem('campaignState');
     console.log('🗑️ Campaign state cleared');
   };
@@ -93,10 +107,12 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     targets,
     template,
     executionStatus,
+    relayConfig,
     setStep: setCurrentStep,
     updateSenderDetails,
     updateTargets,
     updateTemplate,
+    updateRelayConfig,
     setExecutionStatus,
     reset,
     saveCampaignState,

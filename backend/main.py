@@ -11,8 +11,10 @@ from .proxy import ProxyRotationManager, ProxyConfig
 from .reputation import check_ip_reputation
 from .tasks import enqueue_campaign_batch
 from .storage import get_campaign_status, register_campaign, list_campaigns
-from .api import templates, settings, admins, notifications
+from .api import templates, settings, notifications
+from .api import access
 from .config import CONFIGURED_PROVIDERS
+from .database import get_db
 from datetime import datetime
 import uuid
 import hashlib
@@ -26,6 +28,20 @@ def ensure_uuid(val: str) -> str:
         m = hashlib.md5()
         m.update(str(val).encode('utf-8'))
         return str(uuid.UUID(bytes=m.digest()))
+
+
+async def increment_template_usage(template_id: str) -> None:
+    db = get_db()
+    try:
+        template = await db.get_template(template_id)
+        if not template:
+            logger.warning(f"   Template {template_id} not found for usage increment")
+            return
+        current_count = int(template.get("usage_count") or 0)
+        await db.update_template(template_id, {"usage_count": current_count + 1})
+        logger.info(f"   Template {template_id} usage_count incremented to {current_count + 1}")
+    except Exception as exc:
+        logger.warning(f"   Failed to increment template usage_count for {template_id}: {exc}")
 
 # Setup logging to stdout for Railway/production environments
 logging.basicConfig(
@@ -148,6 +164,7 @@ class CampaignRequest(BaseModel):
     provider_config: Dict[str, Any] = Field(default_factory=dict)
     proxy_config: Optional[ProxyConfig] = None
     sender_ip: Optional[str] = None
+    template_id: Optional[str] = None
 
 
 @app.post("/api/campaigns/enqueue")
@@ -185,8 +202,12 @@ async def enqueue_campaign(payload: CampaignRequest):
             "created_at": datetime.utcnow().isoformat(),
             "target_count": str(len(payload.recipients or [])),
             "status": "queued",
+            "template_id": payload.template_id,
         },
     )
+
+    if payload.template_id:
+        await increment_template_usage(payload.template_id)
 
     logger.info(f"   Enqueueing campaign batch to Celery")
     enqueue_campaign_batch(
@@ -259,8 +280,12 @@ async def post_campaign(payload: CampaignRequest):
             "created_at": datetime.utcnow().isoformat(),
             "target_count": str(len(payload.recipients or [])),
             "status": "queued",
+            "template_id": payload.template_id,
         },
     )
+
+    if payload.template_id:
+        await increment_template_usage(payload.template_id)
 
     logger.info(f"   Enqueueing campaign batch to Celery")
     enqueue_campaign_batch(
@@ -284,5 +309,5 @@ async def campaign_status(campaign_id: str):
 # Register API routers with /api prefix
 app.include_router(templates.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
-app.include_router(admins.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
+app.include_router(access.router, prefix="/api")

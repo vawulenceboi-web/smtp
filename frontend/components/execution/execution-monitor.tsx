@@ -58,6 +58,7 @@ export function ExecutionMonitor() {
         },
         proxy_config: null,
         sender_ip: null,
+        ...(template.templateId ? { template_id: template.templateId } : {}),
       });
 
       if (apiError) {

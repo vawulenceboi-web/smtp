@@ -2,11 +2,13 @@
 
 import { Plus, AlertCircle, CheckCircle, Code } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import { useCampaign } from '@/lib/campaign-context';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { apiPost, apiGet } from '@/lib/api-client';
+import { apiPost, apiGet, apiPut } from '@/lib/api-client';
 
 interface Template {
   id: string;
@@ -14,6 +16,8 @@ interface Template {
   category?: string;
   subject: string;
   body_content: string;
+  reply_to?: string;
+  in_reply_to_id?: string;
   usage_count: number;
   created_at: string;
   updated_at: string;
@@ -34,14 +38,23 @@ export function TemplatesView() {
   const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [formData, setFormData] = useState<NewTemplateForm>({
     name: '',
     subject: '',
     body_content: '',
     category: '',
   });
+  const [editFormData, setEditFormData] = useState<NewTemplateForm>({
+    name: '',
+    subject: '',
+    body_content: '',
+    category: '',
+  });
   const { toast } = useToast();
+  const { updateTemplate, setStep } = useCampaign();
+  const router = useRouter();
 
   useEffect(() => {
     const fetchTemplates = async () => {
@@ -70,6 +83,18 @@ export function TemplatesView() {
 
     fetchTemplates();
   }, [toast]);
+
+  const handleUseTemplate = (template: Template) => {
+    updateTemplate({
+      templateId: template.id,
+      subject: template.subject,
+      bodyContent: template.body_content,
+      replyTo: template.reply_to || '',
+      inReplyToId: template.in_reply_to_id || '',
+    });
+    setStep(3);
+    router.push('/campaigns/new');
+  };
 
   const handleCreateTemplate = async () => {
     if (!formData.name || !formData.subject || !formData.body_content) {
@@ -109,6 +134,47 @@ export function TemplatesView() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateTemplate = async () => {
+    if (!selectedTemplate) return;
+    if (!editFormData.name || !editFormData.subject || !editFormData.body_content) {
+      setError('Name, subject, and body are required');
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      setError(null);
+      const { error } = await apiPut(`/api/templates/${selectedTemplate.id}`, {
+        name: editFormData.name,
+        subject: editFormData.subject,
+        body_content: editFormData.body_content,
+        category: editFormData.category || null,
+      });
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      setSuccessMessage('Template updated successfully');
+      setShowEditModal(false);
+      const { data: templates } = await apiGet<Template[]>('/api/templates');
+      if (templates) {
+        setTemplates(templates);
+      }
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update template';
+      setError(message);
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -175,17 +241,32 @@ export function TemplatesView() {
                 <span className="text-xs text-muted-foreground">
                   Used {template.usage_count} times
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs"
-                  onClick={() => {
-                    setSelectedTemplate(template);
-                    setShowViewModal(true);
-                  }}
-                >
-                  View
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => handleUseTemplate(template)}
+                  >
+                    Use Template
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => {
+                      setSelectedTemplate(template);
+                      setEditFormData({
+                        name: template.name,
+                        subject: template.subject,
+                        body_content: template.body_content,
+                        category: template.category || '',
+                      });
+                      setShowEditModal(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -268,50 +349,68 @@ export function TemplatesView() {
         </DialogContent>
       </Dialog>
 
-      {/* View Template Modal */}
-      <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
+      {/* Edit Template Modal */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>View Template: {selectedTemplate?.name}</DialogTitle>
-            <DialogDescription>
-              {selectedTemplate?.category && `Category: ${selectedTemplate.category}`}
-            </DialogDescription>
+            <DialogTitle>Edit Template: {selectedTemplate?.name}</DialogTitle>
+            <DialogDescription>Update the selected email template</DialogDescription>
           </DialogHeader>
 
           {selectedTemplate && (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Subject Line</Label>
-                <div className="p-3 bg-input rounded-lg border border-border text-sm text-foreground font-mono break-words">
-                  {selectedTemplate.subject}
-                </div>
+                <Label htmlFor="edit-template-name">Template Name</Label>
+                <input
+                  id="edit-template-name"
+                  placeholder="e.g., Security Alert Template"
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">Email Body</Label>
-                <div className="p-4 bg-input rounded-lg border border-border text-sm text-foreground font-mono whitespace-pre-wrap break-words max-h-96 overflow-y-auto">
-                  {selectedTemplate.body_content}
-                </div>
+                <Label htmlFor="edit-template-category">Category (Optional)</Label>
+                <input
+                  id="edit-template-category"
+                  placeholder="e.g., Security, Marketing, Notification"
+                  value={editFormData.category}
+                  onChange={(e) => setEditFormData({ ...editFormData, category: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Created</Label>
-                  <p className="text-foreground">
-                    {new Date(selectedTemplate.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Usage Count</Label>
-                  <p className="text-foreground">{selectedTemplate.usage_count} times</p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-template-subject">Subject Line</Label>
+                <input
+                  id="edit-template-subject"
+                  placeholder="e.g., Important Security Update Required"
+                  value={editFormData.subject}
+                  onChange={(e) => setEditFormData({ ...editFormData, subject: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-template-body">Email Body (HTML or Plain Text)</Label>
+                <textarea
+                  id="edit-template-body"
+                  placeholder={'<html>\n<body>\n<p>Hello {{.Email}},</p>\n<p>Please update your password.</p>\n<p>Click here: {{.URL}}</p>\n</body>\n</html>'}
+                  value={editFormData.body_content}
+                  onChange={(e) => setEditFormData({ ...editFormData, body_content: e.target.value })}
+                  className="w-full h-40 px-3 py-2 border border-border rounded-lg text-sm bg-input text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary font-mono"
+                />
               </div>
             </div>
           )}
 
           <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowViewModal(false)}>
-              Close
+            <Button variant="outline" onClick={() => setShowEditModal(false)} disabled={isUpdating}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateTemplate} disabled={isUpdating} className="bg-primary hover:bg-primary/90">
+              {isUpdating ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </DialogContent>
