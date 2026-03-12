@@ -35,20 +35,19 @@ def _get_configured_providers() -> Dict[str, Any]:
     Kept lazy to avoid import-time dependency failures in lightweight contexts.
     """
     try:
-        from ..config import CONFIGURED_PROVIDERS  # local import by design
+        from ..config import CONFIGURED_PROVIDERS 
         return CONFIGURED_PROVIDERS or {}
     except Exception as exc:
         logger.warning(f"[router] Could not load configured providers: {exc}")
         return {}
 
-# ---------------------------------------------------------------------------
-# Config dataclass (mirrors ProviderConfig but lives here for worker isolation)
-# ---------------------------------------------------------------------------
+
+
 
 @dataclass
 class RoutedProviderConfig:
-    name: str                              # human-readable label for logs
-    provider_type: str                     # "zoho" | "brevo" | "mailgun" | "sendgrid" | "resend" | "postmark"
+    name: str                              
+    provider_type: str                     
     api_key: Optional[str] = None
     from_email: Optional[str] = None
     domain: Optional[str] = None
@@ -56,9 +55,6 @@ class RoutedProviderConfig:
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
-# Provider detection from startup-loaded configuration
-# ---------------------------------------------------------------------------
 
 
 def _normalize_provider_type(provider_type: Any) -> str:
@@ -76,7 +72,7 @@ def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[Routed
         account_id = (cfg.extra or {}).get("account_id")
         if not (cfg.base_url or account_id):
             return None
-        base_url = cfg.base_url or f"https://mail.zoho.com/api/accounts/{account_id}/messages"
+        url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
         return RoutedProviderConfig(
             name=name or "zoho",
             provider_type="zoho",
@@ -128,9 +124,7 @@ def _log_provider_chain(chain: List[RoutedProviderConfig]) -> None:
     logger.info(f"[router] Provider chain: {' -> '.join(labels)}")
 
 
-# ---------------------------------------------------------------------------
-# Provider send implementations (sync, for Celery workers)
-# ---------------------------------------------------------------------------
+
 
 def _send_via_resend(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
     resp = httpx.post(
@@ -257,9 +251,7 @@ def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: s
         raise RuntimeError(f"Zoho API {resp.status_code}: {resp.text[:200]}")
 
 
-# ---------------------------------------------------------------------------
-# Dispatch table
-# ---------------------------------------------------------------------------
+
 
 _SEND_FUNC = {
     "resend":    _send_via_resend,
@@ -271,9 +263,6 @@ _SEND_FUNC = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def send_with_failover(
     to: str,
