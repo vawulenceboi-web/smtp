@@ -5,12 +5,13 @@ from datetime import datetime
 from typing import Any, Optional, Tuple
 
 import redis
-import requests
+import httpx
 
 from .database import get_supabase_client
 
 TOKEN_KEY = "zoho_access_token"
 EXPIRY_KEY = "zoho_token_expiry"
+API_DOMAIN_KEY = "zoho_api_domain"
 ZOHO_TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,22 @@ def _set_cached_token(client: redis.Redis, token: str, expiry_ts: int) -> None:
         client.set(EXPIRY_KEY, str(expiry_ts))
     except redis.RedisError as exc:
         logger.warning("Zoho token cache write failed (Redis): %s", exc)
+
+
+def _get_cached_api_domain(client: redis.Redis) -> Optional[str]:
+    try:
+        domain = client.get(API_DOMAIN_KEY)
+    except redis.RedisError as exc:
+        logger.warning("Zoho api_domain cache unavailable (Redis): %s", exc)
+        return None
+    return domain or None
+
+
+def _set_cached_api_domain(client: redis.Redis, api_domain: str) -> None:
+    try:
+        client.set(API_DOMAIN_KEY, api_domain)
+    except redis.RedisError as exc:
+        logger.warning("Zoho api_domain cache write failed (Redis): %s", exc)
 
 
 def _supabase_ready() -> bool:
@@ -142,7 +159,7 @@ def _refresh_from_zoho(client: redis.Redis, db_row: Optional[dict]) -> str:
     if not client_id or not client_secret or not refresh_token:
         raise RuntimeError("Missing ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, or ZOHO_REFRESH_TOKEN")
 
-    resp = requests.post(
+    resp = httpx.post(
         ZOHO_TOKEN_URL,
         data={
             "grant_type": "refresh_token",
@@ -158,11 +175,14 @@ def _refresh_from_zoho(client: redis.Redis, db_row: Optional[dict]) -> str:
     payload = resp.json()
     access_token = payload.get("access_token")
     expires_in = payload.get("expires_in")
+    api_domain = payload.get("api_domain")
     if not access_token or not expires_in:
         raise RuntimeError("Zoho token refresh response missing access_token or expires_in")
 
     expiry_ts = int(time.time()) + int(expires_in) - 60
     _set_cached_token(client, access_token, expiry_ts)
+    if api_domain:
+        _set_cached_api_domain(client, str(api_domain).rstrip("/"))
     _store_db_token(db_row, access_token, expiry_ts)
     return access_token
 
@@ -215,6 +235,31 @@ def get_stored_zoho_token() -> Optional[str]:
             return token
 
     return None
+
+
+def get_zoho_api_domain() -> Optional[str]:
+    """
+    Return the cached Zoho api_domain (if present).
+    """
+    client = _get_redis_client()
+    domain = _get_cached_api_domain(client)
+    if domain:
+        return str(domain).rstrip("/")
+    return None
+
+
+def build_zoho_messages_url(account_id: Optional[str], base_url: Optional[str] = None) -> str:
+    """
+    Build the Zoho Mail send-messages endpoint, preferring api_domain when available.
+    """
+    api_domain = get_zoho_api_domain()
+    if api_domain and account_id:
+        return f"{api_domain.rstrip('/')}/mail/v1/accounts/{account_id}/messages"
+    if base_url:
+        return base_url
+    if account_id:
+        return f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+    return ""
 
 
 def get_zoho_request_token(fallback_token: Optional[str] = None) -> str:

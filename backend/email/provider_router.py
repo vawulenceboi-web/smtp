@@ -72,13 +72,13 @@ def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[Routed
         account_id = (cfg.extra or {}).get("account_id")
         if not (cfg.base_url or account_id):
             return None
-        url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+        url = cfg.base_url or f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
         return RoutedProviderConfig(
             name=name or "zoho",
             provider_type="zoho",
             api_key=cfg.api_key,
             from_email=cfg.from_email,
-            base_url=base_url,
+            base_url=url,
             extra=cfg.extra or {},
         )
 
@@ -207,6 +207,7 @@ def _send_via_postmark(cfg: RoutedProviderConfig, to: str, subject: str, body: s
 
 def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
     from ..zoho_token_manager import (
+        build_zoho_messages_url,
         get_zoho_request_token,
         has_zoho_refresh_credentials,
         mask_zoho_token,
@@ -214,9 +215,12 @@ def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: s
         should_refresh_zoho_token,
     )
 
+    account_id = (cfg.extra or {}).get("account_id")
+    url = build_zoho_messages_url(account_id, cfg.base_url)
+
     def _post(token: str) -> httpx.Response:
         return httpx.post(
-            cfg.base_url or "",
+            url,
             headers={
                 "Authorization": f"Zoho-oauthtoken {token}",
                 "Content-Type": "application/json",
@@ -242,7 +246,7 @@ def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: s
             logger.error(
                 "Zoho retry failed",
                 extra={
-                    "endpoint_url": cfg.base_url or "",
+                    "endpoint_url": url,
                     "status_code": resp.status_code,
                     "response_body": resp.text,
                     "access_token": mask_zoho_token(access_token),

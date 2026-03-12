@@ -10,6 +10,7 @@ from .proxy import ProxyRotationManager
 from .user_agent import random_user_agent, random_x_mailer
 from .requeue import requeue_send_email
 from .zoho_token_manager import (
+    build_zoho_messages_url,
     get_zoho_request_token,
     has_zoho_refresh_credentials,
     mask_zoho_token,
@@ -223,12 +224,9 @@ class ZohoProvider(BaseEmailProvider):
         provider_config: ProviderConfig,
     ) -> Dict[str, Any]:
         account_id = (provider_config.extra or {}).get("account_id")
-        if provider_config.base_url:
-            url = provider_config.base_url
-        else:
-            if not account_id:
-                raise Exception("Zoho requires provider_config.extra.account_id")
-            url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+        if not account_id and not provider_config.base_url:
+            raise Exception("Zoho requires provider_config.extra.account_id")
+        url = build_zoho_messages_url(account_id, provider_config.base_url)
         proxy = self.proxy_manager.current_http_proxy()
 
         payload = {
