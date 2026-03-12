@@ -228,7 +228,7 @@ class ZohoProvider(BaseEmailProvider):
         else:
             if not account_id:
                 raise Exception("Zoho requires provider_config.extra.account_id")
-            url = f"https://mail.zoho.com/api/accounts/{account_id}/messages"
+            url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
         proxy = self.proxy_manager.current_http_proxy()
 
         payload = {
