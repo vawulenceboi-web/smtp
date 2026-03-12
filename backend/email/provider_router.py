@@ -76,7 +76,7 @@ def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[Routed
         account_id = (cfg.extra or {}).get("account_id")
         if not (cfg.base_url or account_id):
             return None
-        base_url = cfg.base_url or f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+        base_url = cfg.base_url or f"https://mail.zoho.com/api/accounts/{account_id}/messages"
         return RoutedProviderConfig(
             name=name or "zoho",
             provider_type="zoho",
@@ -226,7 +226,6 @@ def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: s
             "toAddress": to,
             "subject": subject,
             "content": body,
-            "mailFormat": "html",
         },
         timeout=20,
     )

@@ -220,7 +220,7 @@ class ZohoProvider(BaseEmailProvider):
         else:
             if not account_id:
                 raise Exception("Zoho requires provider_config.extra.account_id")
-            url = f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
+            url = f"https://mail.zoho.com/api/accounts/{account_id}/messages"
         access_token = get_valid_zoho_token()
         auth_headers = {
             "Authorization": f"Zoho-oauthtoken {access_token}",
@@ -237,7 +237,6 @@ class ZohoProvider(BaseEmailProvider):
                     "toAddress": ",".join(to),
                     "subject": subject,
                     "content": body,
-                    "mailFormat": "html",
                 },
                 headers=final_headers,
             )
