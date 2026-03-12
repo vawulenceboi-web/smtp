@@ -88,6 +88,16 @@ CREATE INDEX IF NOT EXISTS idx_campaign_recipients_status ON public.campaign_rec
 -- ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.campaign_recipients ENABLE ROW LEVEL SECURITY;
 
+-- SYSTEM_SETTINGS TABLE
+-- Stores system-wide settings (access key + Zoho OAuth cache)
+CREATE TABLE IF NOT EXISTS public.system_settings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  access_key TEXT NOT NULL,
+  zoho_access_token TEXT,
+  zoho_token_expiry BIGINT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- SETTINGS TABLE
 -- Stores application configuration settings
 CREATE TABLE IF NOT EXISTS public.settings (

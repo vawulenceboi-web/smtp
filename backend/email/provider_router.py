@@ -212,24 +212,48 @@ def _send_via_postmark(cfg: RoutedProviderConfig, to: str, subject: str, body: s
 
 
 def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
-    from ..zoho_token_manager import get_valid_zoho_token
-
-    access_token = cfg.api_key or get_valid_zoho_token()
-    resp = httpx.post(
-        cfg.base_url or "",
-        headers={
-            "Authorization": f"Zoho-oauthtoken {access_token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "fromAddress": cfg.from_email,
-            "toAddress": to,
-            "subject": subject,
-            "content": body,
-        },
-        timeout=20,
+    from ..zoho_token_manager import (
+        get_zoho_request_token,
+        has_zoho_refresh_credentials,
+        mask_zoho_token,
+        refresh_zoho_token,
+        should_refresh_zoho_token,
     )
+
+    def _post(token: str) -> httpx.Response:
+        return httpx.post(
+            cfg.base_url or "",
+            headers={
+                "Authorization": f"Zoho-oauthtoken {token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "fromAddress": cfg.from_email,
+                "toAddress": to,
+                "subject": subject,
+                "content": body,
+            },
+            timeout=20,
+        )
+
+    access_token = get_zoho_request_token(cfg.api_key)
+    resp = _post(access_token)
+    did_retry = False
+    if should_refresh_zoho_token(resp) and has_zoho_refresh_credentials():
+        access_token = refresh_zoho_token()
+        resp = _post(access_token)
+        did_retry = True
     if resp.status_code >= 400:
+        if did_retry:
+            logger.error(
+                "Zoho retry failed",
+                extra={
+                    "endpoint_url": cfg.base_url or "",
+                    "status_code": resp.status_code,
+                    "response_body": resp.text,
+                    "access_token": mask_zoho_token(access_token),
+                },
+            )
         raise RuntimeError(f"Zoho API {resp.status_code}: {resp.text[:200]}")
 
 

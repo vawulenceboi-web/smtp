@@ -1,13 +1,19 @@
+import logging
 import os
 import time
-from typing import Optional
+from datetime import datetime
+from typing import Any, Optional, Tuple
 
 import redis
 import requests
 
+from .database import get_supabase_client
+
 TOKEN_KEY = "zoho_access_token"
 EXPIRY_KEY = "zoho_token_expiry"
 ZOHO_TOKEN_URL = "https://accounts.zoho.com/oauth/v2/token"
+
+logger = logging.getLogger(__name__)
 
 
 def _get_redis_client() -> redis.Redis:
@@ -16,8 +22,12 @@ def _get_redis_client() -> redis.Redis:
 
 
 def _get_cached_token(client: redis.Redis) -> Optional[str]:
-    token = client.get(TOKEN_KEY)
-    expiry_raw = client.get(EXPIRY_KEY)
+    try:
+        token = client.get(TOKEN_KEY)
+        expiry_raw = client.get(EXPIRY_KEY)
+    except redis.RedisError as exc:
+        logger.warning("Zoho token cache unavailable (Redis): %s", exc)
+        return None
     if not token or not expiry_raw:
         return None
     try:
@@ -28,15 +38,104 @@ def _get_cached_token(client: redis.Redis) -> Optional[str]:
     return None
 
 
-def get_valid_zoho_token() -> str:
-    """
-    Return a valid Zoho OAuth access token. Uses Redis cache and refresh token flow.
-    """
-    client = _get_redis_client()
-    cached = _get_cached_token(client)
-    if cached:
-        return cached
+def _set_cached_token(client: redis.Redis, token: str, expiry_ts: int) -> None:
+    try:
+        client.set(TOKEN_KEY, token)
+        client.set(EXPIRY_KEY, str(expiry_ts))
+    except redis.RedisError as exc:
+        logger.warning("Zoho token cache write failed (Redis): %s", exc)
 
+
+def _supabase_ready() -> bool:
+    return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"))
+
+
+def _has_refresh_credentials() -> bool:
+    return bool(
+        os.getenv("ZOHO_CLIENT_ID")
+        and os.getenv("ZOHO_CLIENT_SECRET")
+        and os.getenv("ZOHO_REFRESH_TOKEN")
+    )
+
+
+def _get_db_latest_row() -> Optional[dict]:
+    if not _supabase_ready():
+        return None
+    try:
+        db = get_supabase_client()
+        resp = (
+            db.client.table("system_settings")
+            .select("id, zoho_access_token, zoho_token_expiry")
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("Zoho token DB read failed (system_settings): %s", exc)
+        return None
+    if not resp.data:
+        return None
+    return resp.data[0]
+
+
+def _extract_db_token(row: Optional[dict]) -> Optional[Tuple[str, int]]:
+    if not row:
+        return None
+    token = row.get("zoho_access_token")
+    expiry_raw = row.get("zoho_token_expiry")
+    if not token or expiry_raw is None:
+        return None
+    try:
+        expiry_ts = int(expiry_raw)
+    except (TypeError, ValueError):
+        return None
+    if expiry_ts > int(time.time()):
+        return token, expiry_ts
+    return None
+
+
+def _store_db_token(row: Optional[dict], token: str, expiry_ts: int) -> None:
+    if not _supabase_ready():
+        return
+    try:
+        db = get_supabase_client()
+    except Exception as exc:
+        logger.warning("Zoho token DB unavailable: %s", exc)
+        return
+
+    row_id = row.get("id") if row else None
+    if not row_id:
+        try:
+            resp = (
+                db.client.table("system_settings")
+                .select("id")
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if resp.data:
+                row_id = resp.data[0].get("id")
+        except Exception as exc:
+            logger.warning("Zoho token DB lookup failed (system_settings): %s", exc)
+            return
+
+    if not row_id:
+        logger.warning("Zoho token not stored: system_settings row missing")
+        return
+
+    try:
+        db.client.table("system_settings").update(
+            {
+                "zoho_access_token": token,
+                "zoho_token_expiry": expiry_ts,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        ).eq("id", row_id).execute()
+    except Exception as exc:
+        logger.warning("Zoho token DB write failed (system_settings): %s", exc)
+
+
+def _refresh_from_zoho(client: redis.Redis, db_row: Optional[dict]) -> str:
     client_id = os.getenv("ZOHO_CLIENT_ID")
     client_secret = os.getenv("ZOHO_CLIENT_SECRET")
     refresh_token = os.getenv("ZOHO_REFRESH_TOKEN")
@@ -63,9 +162,134 @@ def get_valid_zoho_token() -> str:
         raise RuntimeError("Zoho token refresh response missing access_token or expires_in")
 
     expiry_ts = int(time.time()) + int(expires_in) - 60
-    client.set(TOKEN_KEY, access_token)
-    client.set(EXPIRY_KEY, str(expiry_ts))
+    _set_cached_token(client, access_token, expiry_ts)
+    _store_db_token(db_row, access_token, expiry_ts)
     return access_token
+
+
+def refresh_zoho_token() -> str:
+    """Force refresh from Zoho Accounts API and update caches."""
+    client = _get_redis_client()
+    db_row = _get_db_latest_row()
+    return _refresh_from_zoho(client, db_row)
+
+
+def get_valid_zoho_token() -> str:
+    """
+    Return a valid Zoho OAuth access token. Uses Redis cache and refresh token flow.
+    """
+    client = _get_redis_client()
+    cached = _get_cached_token(client)
+    if cached:
+        return cached
+
+    db_row = _get_db_latest_row()
+    db_cached = _extract_db_token(db_row)
+    if db_cached:
+        token, expiry_ts = db_cached
+        _set_cached_token(client, token, expiry_ts)
+        return token
+
+    return _refresh_from_zoho(client, db_row)
+
+
+def get_stored_zoho_token() -> Optional[str]:
+    """
+    Return the most recently stored Zoho access token without checking expiry.
+    Prefers Redis cache, then falls back to the latest system_settings row.
+    """
+    client = _get_redis_client()
+    try:
+        token = client.get(TOKEN_KEY)
+    except redis.RedisError as exc:
+        logger.warning("Zoho token cache unavailable (Redis): %s", exc)
+        token = None
+
+    if token:
+        return token
+
+    db_row = _get_db_latest_row()
+    if db_row:
+        token = db_row.get("zoho_access_token")
+        if token:
+            return token
+
+    return None
+
+
+def get_zoho_request_token(fallback_token: Optional[str] = None) -> str:
+    """
+    Return the currently stored access token, falling back to provided token.
+    If neither exist, refresh to obtain a new token.
+    """
+    stored = get_stored_zoho_token()
+    if stored:
+        return stored
+    if fallback_token:
+        return fallback_token
+    return get_valid_zoho_token()
+
+
+def has_zoho_refresh_credentials() -> bool:
+    """Public helper to check if refresh token flow is available."""
+    return _has_refresh_credentials()
+
+
+def _json_contains_invalid_oauth(value: Any) -> bool:
+    marker = "INVALID_OAUTHTOKEN"
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if isinstance(v, str) and marker in v.upper():
+                return True
+            if isinstance(k, str) and k.lower() in ("code", "error", "errorcode"):
+                if isinstance(v, str) and marker in v.upper():
+                    return True
+            if _json_contains_invalid_oauth(v):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_json_contains_invalid_oauth(item) for item in value)
+    if isinstance(value, str):
+        return marker in value.upper()
+    return False
+
+
+def is_invalid_zoho_token_response(resp: Any) -> bool:
+    """Detect Zoho INVALID_OAUTHTOKEN responses across JSON/text payloads."""
+    try:
+        text = resp.text or ""
+    except Exception:
+        text = ""
+    if "INVALID_OAUTHTOKEN" in text.upper():
+        return True
+    try:
+        content_type = resp.headers.get("content-type", "")
+        if content_type.startswith("application/json"):
+            payload = resp.json()
+            return _json_contains_invalid_oauth(payload)
+    except Exception:
+        return False
+    return False
+
+
+def should_refresh_zoho_token(resp: Any) -> bool:
+    """Refresh only when the response is 401 and indicates INVALID_OAUTHTOKEN."""
+    try:
+        if getattr(resp, "status_code", None) != 401:
+            return False
+    except Exception:
+        return False
+    return is_invalid_zoho_token_response(resp)
+
+
+def mask_zoho_token(token: str, keep_last: int = 4) -> str:
+    if not token:
+        return ""
+    if keep_last <= 0:
+        return "*" * len(token)
+    if len(token) <= keep_last:
+        return token
+    return "*" * (len(token) - keep_last) + token[-keep_last:]
 
 
 # Backwards-compatible alias

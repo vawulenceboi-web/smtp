@@ -1,3 +1,4 @@
+import logging
 from dataclasses import field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -8,9 +9,16 @@ import aiosmtplib
 from .proxy import ProxyRotationManager
 from .user_agent import random_user_agent, random_x_mailer
 from .requeue import requeue_send_email
-from .zoho_token_manager import get_valid_zoho_token
+from .zoho_token_manager import (
+    get_zoho_request_token,
+    has_zoho_refresh_credentials,
+    mask_zoho_token,
+    refresh_zoho_token,
+    should_refresh_zoho_token,
+)
 from pydantic.dataclasses import dataclass
 
+logger = logging.getLogger(__name__)
 
 class ProviderType(str, Enum):
     BREVO = "brevo"
@@ -221,30 +229,50 @@ class ZohoProvider(BaseEmailProvider):
             if not account_id:
                 raise Exception("Zoho requires provider_config.extra.account_id")
             url = f"https://mail.zoho.com/api/accounts/{account_id}/messages"
-        access_token = get_valid_zoho_token()
-        auth_headers = {
-            "Authorization": f"Zoho-oauthtoken {access_token}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-        final_headers = self._augment_headers({**auth_headers, **(headers or {})})
-
         proxy = self.proxy_manager.current_http_proxy()
-        async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
-            resp = await client.post(
-                url,
-                data={
-                    "fromAddress": provider_config.from_email,
-                    "toAddress": ",".join(to),
-                    "subject": subject,
-                    "content": body,
-                    "mailFormat": "html",
-                },
-                headers=final_headers,
-            )
+
+        payload = {
+            "fromAddress": provider_config.from_email,
+            "toAddress": ",".join(to),
+            "subject": subject,
+            "content": body,
+            "mailFormat": "html",
+        }
+        base_headers = self._augment_headers(
+            {**(headers or {}), "Content-Type": "application/x-www-form-urlencoded"}
+        )
+
+        async def _post_with_token(token: str) -> httpx.Response:
+            final_headers = dict(base_headers)
+            final_headers["Authorization"] = f"Zoho-oauthtoken {token}"
+            async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
+                return await client.post(
+                    url,
+                    data=payload,
+                    headers=final_headers,
+                )
+
+        access_token = get_zoho_request_token(provider_config.api_key)
+        resp = await _post_with_token(access_token)
+        did_retry = False
+        if should_refresh_zoho_token(resp) and has_zoho_refresh_credentials():
+            access_token = refresh_zoho_token()
+            resp = await _post_with_token(access_token)
+            did_retry = True
 
         if resp.status_code == 429:
             await self._handle_rate_limit(provider_config, to, subject, body, headers)
         if 400 <= resp.status_code < 600:
+            if did_retry:
+                logger.error(
+                    "Zoho retry failed",
+                    extra={
+                        "endpoint_url": url,
+                        "status_code": resp.status_code,
+                        "response_body": resp.text,
+                        "access_token": mask_zoho_token(access_token),
+                    },
+                )
             data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             message = str(data)
             if "hard bounce" in message.lower():
