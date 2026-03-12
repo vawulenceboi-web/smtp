@@ -14,10 +14,10 @@ class AccessVerifyRequest(BaseModel):
 
 @router.post("/verify")
 async def verify_access(request: AccessVerifyRequest):
-    client = get_supabase_client()
+    db = get_supabase_client()
 
     response = (
-        client.table("system_settings")
+        db.client.table("system_settings")
         .select("id, access_key, updated_at")
         .order("updated_at", desc=True)
         .limit(1)
