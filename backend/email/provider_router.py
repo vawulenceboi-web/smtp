@@ -4,12 +4,11 @@ backend/email/provider_router.py
 Provider Priority Router
 ========================
 Selects email providers in priority order:
-  1. Zoho Mail API (API - HTTPS 443)
+  1. Resend        (API - HTTPS 443)
   2. Brevo         (API - HTTPS 443)
   3. Mailgun       (API - HTTPS 443)
   4. SendGrid      (API - HTTPS 443)
-  5. Resend        (API - HTTPS 443)
-  6. Postmark      (API - HTTPS 443)
+  5. Postmark      (API - HTTPS 443)
 
 For each recipient the router walks the chain until one succeeds.
 All provider credentials are read from environment variables.
@@ -26,7 +25,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_PRIORITY = ["zoho", "brevo", "mailgun", "sendgrid", "resend", "postmark"]
+PROVIDER_PRIORITY = ["resend", "brevo", "mailgun", "sendgrid", "postmark"]
 
 
 def _get_configured_providers() -> Dict[str, Any]:
@@ -62,26 +61,10 @@ def _normalize_provider_type(provider_type: Any) -> str:
     val = str(raw or "").lower()
     if val == "sendinblue":
         return "brevo"
-    if val == "zoho-api":
-        return "zoho"
     return val
 
 
 def _api_from_config(name: str, cfg: Any, provider_type: str) -> Optional[RoutedProviderConfig]:
-    if provider_type == "zoho":
-        account_id = (cfg.extra or {}).get("account_id")
-        if not (cfg.base_url or account_id):
-            return None
-        url = cfg.base_url or f"https://www.zohoapis.com/mail/v1/accounts/{account_id}/messages"
-        return RoutedProviderConfig(
-            name=name or "zoho",
-            provider_type="zoho",
-            api_key=cfg.api_key,
-            from_email=cfg.from_email,
-            base_url=url,
-            extra=cfg.extra or {},
-        )
-
     if provider_type in {"brevo", "mailgun", "sendgrid", "resend", "postmark"} and cfg.api_key:
         return RoutedProviderConfig(
             name=name or provider_type,
@@ -205,57 +188,6 @@ def _send_via_postmark(cfg: RoutedProviderConfig, to: str, subject: str, body: s
         raise RuntimeError(f"Postmark {resp.status_code}: {resp.text[:200]}")
 
 
-def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: str) -> None:
-    from ..zoho_token_manager import (
-        build_zoho_messages_url,
-        get_zoho_request_token,
-        has_zoho_refresh_credentials,
-        mask_zoho_token,
-        refresh_zoho_token,
-        should_refresh_zoho_token,
-    )
-
-    account_id = (cfg.extra or {}).get("account_id")
-    url = build_zoho_messages_url(account_id, cfg.base_url)
-
-    def _post(token: str) -> httpx.Response:
-        return httpx.post(
-            url,
-            headers={
-                "Authorization": f"Zoho-oauthtoken {token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "fromAddress": cfg.from_email,
-                "toAddress": to,
-                "subject": subject,
-                "content": body,
-                "mailFormat": "html",
-            },
-            timeout=20,
-        )
-
-    access_token = get_zoho_request_token(cfg.api_key)
-    resp = _post(access_token)
-    did_retry = False
-    if should_refresh_zoho_token(resp) and has_zoho_refresh_credentials():
-        access_token = refresh_zoho_token()
-        resp = _post(access_token)
-        did_retry = True
-    if resp.status_code >= 400:
-        if did_retry:
-            logger.error(
-                "Zoho retry failed",
-                extra={
-                    "endpoint_url": url,
-                    "status_code": resp.status_code,
-                    "response_body": resp.text,
-                    "access_token": mask_zoho_token(access_token),
-                },
-            )
-        raise RuntimeError(f"Zoho API {resp.status_code}: {resp.text[:200]}")
-
-
 
 
 _SEND_FUNC = {
@@ -264,7 +196,6 @@ _SEND_FUNC = {
     "brevo":     _send_via_brevo,
     "mailgun":   _send_via_mailgun,
     "postmark":  _send_via_postmark,
-    "zoho":      _send_via_zoho_api,
 }
 
 

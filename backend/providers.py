@@ -9,14 +9,6 @@ import aiosmtplib
 from .proxy import ProxyRotationManager
 from .user_agent import random_user_agent, random_x_mailer
 from .requeue import requeue_send_email
-from .zoho_token_manager import (
-    build_zoho_messages_url,
-    get_zoho_request_token,
-    has_zoho_refresh_credentials,
-    mask_zoho_token,
-    refresh_zoho_token,
-    should_refresh_zoho_token,
-)
 from pydantic.dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -24,7 +16,6 @@ logger = logging.getLogger(__name__)
 class ProviderType(str, Enum):
     BREVO = "brevo"
     MAILGUN = "mailgun"
-    ZOHO = "zoho"
     SENDINBLUE = "sendinblue"
     SENDGRID = "sendgrid"
     RESEND = "resend"
@@ -212,92 +203,6 @@ class MailgunProvider(BaseEmailProvider):
             delay_seconds=60,
         )
         raise RateLimitError("Mailgun rate limited. Email requeued.")
-
-
-class ZohoProvider(BaseEmailProvider):
-    async def send_email(
-        self,
-        to: List[str],
-        subject: str,
-        body: str,
-        headers: Dict[str, Any],
-        provider_config: ProviderConfig,
-    ) -> Dict[str, Any]:
-        account_id = (provider_config.extra or {}).get("account_id")
-        if not account_id and not provider_config.base_url:
-            raise Exception("Zoho requires provider_config.extra.account_id")
-        url = build_zoho_messages_url(account_id, provider_config.base_url)
-        proxy = self.proxy_manager.current_http_proxy()
-
-        payload = {
-            "fromAddress": provider_config.from_email,
-            "toAddress": ",".join(to),
-            "subject": subject,
-            "content": body,
-            "mailFormat": "html",
-        }
-        base_headers = self._augment_headers(
-            {**(headers or {}), "Content-Type": "application/json"}
-        )
-
-        async def _post_with_token(token: str) -> httpx.Response:
-            final_headers = dict(base_headers)
-            final_headers["Authorization"] = f"Zoho-oauthtoken {token}"
-            async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
-                return await client.post(
-                    url,
-                    json=payload,
-                    headers=final_headers,
-                )
-
-        access_token = get_zoho_request_token(provider_config.api_key)
-        resp = await _post_with_token(access_token)
-        did_retry = False
-        if should_refresh_zoho_token(resp) and has_zoho_refresh_credentials():
-            access_token = refresh_zoho_token()
-            resp = await _post_with_token(access_token)
-            did_retry = True
-
-        if resp.status_code == 429:
-            await self._handle_rate_limit(provider_config, to, subject, body, headers)
-        if 400 <= resp.status_code < 600:
-            if did_retry:
-                logger.error(
-                    "Zoho retry failed",
-                    extra={
-                        "endpoint_url": url,
-                        "status_code": resp.status_code,
-                        "response_body": resp.text,
-                        "access_token": mask_zoho_token(access_token),
-                    },
-                )
-            data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            message = str(data)
-            if "hard bounce" in message.lower():
-                raise HardBounceError(message)
-            if "spam" in message.lower():
-                raise SpamBlockedError(message)
-            raise Exception(f"Zoho error: {resp.status_code} {message}")
-
-        return resp.json()
-
-    async def _handle_rate_limit(
-        self,
-        provider_config: ProviderConfig,
-        to: List[str],
-        subject: str,
-        body: str,
-        headers: Dict[str, Any],
-    ):
-        requeue_send_email(
-            to=to,
-            subject=subject,
-            body=body,
-            headers=headers,
-            provider_config=provider_config.to_dict(),
-            delay_seconds=60,
-        )
-        raise RateLimitError("Zoho rate limited. Email requeued.")
 
 
 class SendinblueProvider(BaseEmailProvider):
@@ -628,8 +533,6 @@ class ProviderFactory:
             return BrevoProvider(config, proxy_manager)
         if config.provider_type == ProviderType.MAILGUN:
             return MailgunProvider(config, proxy_manager)
-        if config.provider_type == ProviderType.ZOHO:
-            return ZohoProvider(config, proxy_manager)
         if config.provider_type == ProviderType.SENDINBLUE:
             return SendinblueProvider(config, proxy_manager)
         if config.provider_type == ProviderType.SENDGRID:

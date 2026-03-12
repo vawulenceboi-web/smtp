@@ -17,29 +17,6 @@ class ProviderConfigManager:
     
     # Environment variable naming convention:
     # PROVIDER_{PROVIDER_TYPE}_{FIELD} = value
-    # Example: PROVIDER_ZOHO_HOST=smtp.zoho.com
-    
-    @staticmethod
-    def load_zoho() -> Optional[ProviderConfig]:
-        """Load Zoho API provider from env vars"""
-        api_key = os.getenv("PROVIDER_ZOHO_API_KEY")
-        account_id = os.getenv("PROVIDER_ZOHO_ACCOUNT_ID")
-        has_oauth = all(
-            [
-                os.getenv("ZOHO_CLIENT_ID"),
-                os.getenv("ZOHO_CLIENT_SECRET"),
-                os.getenv("ZOHO_REFRESH_TOKEN"),
-            ]
-        )
-        if not account_id or (not api_key and not has_oauth):
-            return None
-
-        return ProviderConfig(
-            provider_type=ProviderType.ZOHO,
-            api_key=api_key,
-            from_email=os.getenv("PROVIDER_ZOHO_FROM_EMAIL", ""),
-            extra={"account_id": account_id},
-        )
     
     @staticmethod
     def load_sendgrid() -> Optional[ProviderConfig]:
@@ -117,12 +94,7 @@ class ProviderConfigManager:
     def get_all_configured_providers() -> Dict[str, ProviderConfig]:
         """Load all configured providers from environment variables"""
         providers = {}
-        
-        zoho = ProviderConfigManager.load_zoho()
-        if zoho:
-            providers["zoho"] = zoho
-            logger.info("Loaded Zoho provider from environment variables")
-        
+
         sendgrid = ProviderConfigManager.load_sendgrid()
         if sendgrid:
             providers["sendgrid"] = sendgrid

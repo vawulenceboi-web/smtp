@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const json = await request.json();
     const {
-      provider, // 'brevo', 'mailgun', 'zoho', 'smtp'
+      provider, // 'brevo', 'mailgun', 'smtp'
       smtpConfig, // { host, port, user, pass, secure }
       senderDomain,
       targets, // array of emails

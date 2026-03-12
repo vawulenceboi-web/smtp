@@ -92,7 +92,6 @@ Backend API at `http://localhost:8000`
 
 - `brevo`
 - `mailgun`
-- `zoho`
 - `sendinblue`
 - `smtp`
 

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/relays", tags=["relays"])
 class RelayCreate(BaseModel):
     name: str
     # Support both old format (host/port/username/password) and new format (provider_key)
-    provider_key: Optional[str] = None  # e.g., "zoho", "sendgrid", or "smtp" for custom SMTP
+    provider_key: Optional[str] = None  # e.g., "sendgrid" or "smtp" for custom SMTP
     
     # Old format (backwards compatibility): Custom SMTP details
     host: Optional[str] = None  # For custom SMTP
