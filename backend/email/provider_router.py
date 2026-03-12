@@ -4,8 +4,8 @@ backend/email/provider_router.py
 Provider Priority Router
 ========================
 Selects email providers in priority order:
-  1. Resend        (API - HTTPS 443)
-  2. Brevo         (API - HTTPS 443)
+  1. Brevo         (API - HTTPS 443)
+  2. Resend        (API - HTTPS 443)
   3. Mailgun       (API - HTTPS 443)
   4. SendGrid      (API - HTTPS 443)
   5. Postmark      (API - HTTPS 443)
@@ -25,7 +25,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_PRIORITY = ["resend", "brevo", "mailgun", "sendgrid", "postmark"]
+PROVIDER_PRIORITY = ["brevo", "resend", "mailgun", "sendgrid", "postmark"]
 
 
 def _get_configured_providers() -> Dict[str, Any]:
