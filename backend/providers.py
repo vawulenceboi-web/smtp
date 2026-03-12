@@ -224,7 +224,7 @@ class ZohoProvider(BaseEmailProvider):
         access_token = get_valid_zoho_token()
         auth_headers = {
             "Authorization": f"Zoho-oauthtoken {access_token}",
-            "Content-Type": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
         }
         final_headers = self._augment_headers({**auth_headers, **(headers or {})})
 
@@ -232,11 +232,12 @@ class ZohoProvider(BaseEmailProvider):
         async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
             resp = await client.post(
                 url,
-                json={
+                data={
                     "fromAddress": provider_config.from_email,
                     "toAddress": ",".join(to),
                     "subject": subject,
                     "content": body,
+                    "mailFormat": "html",
                 },
                 headers=final_headers,
             )
