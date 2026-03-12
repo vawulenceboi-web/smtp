@@ -230,6 +230,7 @@ def _send_via_zoho_api(cfg: RoutedProviderConfig, to: str, subject: str, body: s
                 "toAddress": to,
                 "subject": subject,
                 "content": body,
+                "mailFormat": "html",
             },
             timeout=20,
         )

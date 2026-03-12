@@ -237,7 +237,7 @@ class ZohoProvider(BaseEmailProvider):
             "mailFormat": "html",
         }
         base_headers = self._augment_headers(
-            {**(headers or {}), "Content-Type": "application/x-www-form-urlencoded"}
+            {**(headers or {}), "Content-Type": "application/json"}
         )
 
         async def _post_with_token(token: str) -> httpx.Response:
@@ -246,7 +246,7 @@ class ZohoProvider(BaseEmailProvider):
             async with httpx.AsyncClient(proxies=proxy, timeout=20.0) as client:
                 return await client.post(
                     url,
-                    data=payload,
+                    json=payload,
                     headers=final_headers,
                 )
 
