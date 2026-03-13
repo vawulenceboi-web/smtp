@@ -1,5 +1,5 @@
 """Access key verification endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 import uuid
 
@@ -33,3 +33,8 @@ async def verify_access(request: AccessVerifyRequest):
         raise HTTPException(status_code=401, detail="Invalid access key")
 
     return {"status": "ok", "token": str(uuid.uuid4())}
+
+
+@router.options("/verify")
+async def verify_access_options() -> Response:
+    return Response(status_code=200)
