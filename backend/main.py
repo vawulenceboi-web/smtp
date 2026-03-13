@@ -64,14 +64,10 @@ if CONFIGURED_PROVIDERS:
 else:
     logger.warning("⚠️  No email providers configured! Set PROVIDER_* environment variables.")
 
-# Configure CORS to allow requests from Vercel frontend and localhost.
-# Using allow_origin_regex so all Vercel preview URLs are accepted automatically
-# without needing to whitelist each deployment individually.
-CORS_ORIGIN_REGEX = (
-    r"https://smtp.*\.vercel\.app"          # Any smtp-* Vercel deployment
-    r"|http://localhost:\d+"                 # Any localhost port
-    r"|http://127\.0\.0\.1:\d+"             # Any 127.0.0.1 port
-)
+# Configure CORS to allow OPTIONS preflight requests across API routes.
+# Use a permissive default to prevent 400s on preflight; override via env for stricter control.
+DEFAULT_CORS_ORIGIN_REGEX = r"https?://.*"
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", DEFAULT_CORS_ORIGIN_REGEX)
 
 app.add_middleware(
     CORSMiddleware,
